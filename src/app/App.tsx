@@ -1,16 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import {
-  Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement,
-  PointElement, ArcElement, RadialLinearScale, Filler, Legend, Tooltip, Title,
-} from "chart.js";
-import { Bar, Line, Doughnut, Pie, Radar, Scatter, Bubble, PolarArea } from "react-chartjs-2";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import * as echarts from "echarts";
 import { ChevronDown, ChevronUp, Plus, X, Trash2, Download, RefreshCw, Shuffle, Edit2, Check, Sun, Moon } from "lucide-react";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, RadialLinearScale, Filler, Legend, Tooltip, Title);
-
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Library = "chartjs" | "echarts";
 type SizePreset = "S" | "M" | "L" | "Custom";
 interface Dataset { id: string; name: string; data: number[]; color: string; }
 
@@ -141,13 +133,6 @@ export const ECHARTS_CATALOGUE = [
   },
 ];
 
-const CHARTJS_TYPES = [
-  { id: "bar", label: "Bar" }, { id: "line", label: "Line" },
-  { id: "doughnut", label: "Doughnut" }, { id: "pie", label: "Pie" },
-  { id: "radar", label: "Radar" }, { id: "area", label: "Area" },
-  { id: "scatter", label: "Scatter" }, { id: "polarArea", label: "Polar" },
-  { id: "bubble", label: "Bubble" },
-];
 
 // ─── Sample Data Generators ───────────────────────────────────────────────────
 function genDates(count: number, startYear = 2024) {
@@ -185,6 +170,7 @@ function buildEChartsOption(
   title: string,
   size: { w: number; h: number },
   autoResponsive: boolean,
+  smoothLine: boolean,
 ): echarts.EChartsOption {
   const bg = theme === "dark" ? "#1E1E2E" : "#ffffff";
   const fg = theme === "dark" ? "#d1d5db" : "#374151";
@@ -192,18 +178,25 @@ function buildEChartsOption(
   const w = size.w;
   const isSmall = autoResponsive && w <= 400;
   const isMid = autoResponsive && w > 400 && w <= 800;
-  const titleSz = isSmall ? 13 : isMid ? 16 : 20;
+  const titleSz = isSmall ? 12 : isMid ? 16 : 20;
   const legendBottom = isSmall || isMid;
+  const axisFontSz = isSmall ? 9 : 11;
 
-  const axisTick = { axisLabel: { color: fg, fontFamily: "Inter", fontSize: 11 }, axisLine: { lineStyle: { color: axisC } }, splitLine: { lineStyle: { color: axisC } } };
+  const axisTick = { axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz }, axisLine: { lineStyle: { color: axisC } }, splitLine: { lineStyle: { color: axisC } } };
   const titleCfg: echarts.TitleComponentOption | undefined = title
-    ? { text: title, left: "center", top: 8, textStyle: { color: fg, fontSize: titleSz, fontFamily: "Inter", fontWeight: "bold" } } : undefined;
+    ? { text: title, left: "center", top: 6, textStyle: { color: fg, fontSize: titleSz, fontFamily: "Inter", fontWeight: "bold" } } : undefined;
   const legend: echarts.LegendComponentOption = {
     show: !isSmall,
-    ...(legendBottom ? { bottom: 6, left: "center" } : { right: 8, top: "middle" }),
-    textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 },
+    ...(legendBottom
+      ? { bottom: 4, left: "center" }
+      : { right: 8, top: "middle", orient: "vertical" as const }),
+    itemGap: 16,
+    textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 10 : 12 },
   };
-  const grid = { left: 48, right: legendBottom ? 12 : 96, top: title ? 52 : 20, bottom: legendBottom ? 60 : 28, containLabel: true };
+  const topPad = title ? (isSmall ? 36 : 52) : (isSmall ? 12 : 20);
+  const gridL = isSmall ? 8 : 48;
+  const grid = { left: gridL, right: legendBottom ? 8 : 96, top: topPad, bottom: isMid ? 60 : 28, containLabel: true };
+  const gridFull = { left: gridL, right: isSmall ? 8 : 12, top: topPad, bottom: 28, containLabel: true };
   const tooltip: echarts.TooltipComponentOption = { trigger: "axis", backgroundColor: theme === "dark" ? "#1f2937" : "#fff", borderColor: axisC, textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 } };
 
   // ── helpers ──
@@ -221,7 +214,7 @@ function buildEChartsOption(
         xAxis: { type: "category", data: userLabels, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: datasets.map((ds, i) => ({
-          name: ds.name, type: "line", data: ds.data, smooth: true,
+          name: ds.name, type: "line", data: ds.data, smooth: smoothLine,
           symbol: "circle", symbolSize: 6, lineStyle: { width: 2.5 },
           itemStyle: { color: palette[i % palette.length] },
         })),
@@ -247,7 +240,7 @@ function buildEChartsOption(
         yAxis: { type: "value", ...axisTick },
         series: datasets.map((ds, i) => ({
           name: ds.name, type: "line", stack: "total",
-          areaStyle: { opacity: 0.6 }, smooth: true, data: ds.data,
+          areaStyle: { opacity: 0.6 }, smooth: smoothLine, data: ds.data,
           lineStyle: { width: 2 }, itemStyle: { color: palette[i % palette.length] },
         })),
       };
@@ -278,7 +271,7 @@ function buildEChartsOption(
         series: [
           { name: "Upper", type: "line", data: upper, lineStyle: { opacity: 0 }, stack: "confidence", symbol: "none", color: "transparent" },
           { name: "Band", type: "line", data: lower.map((v, i) => upper[i] - v), lineStyle: { opacity: 0 }, areaStyle: { color: palette[0] + "40" }, stack: "confidence", symbol: "none", color: "transparent" },
-          { name: datasets[0]?.name ?? "Value", type: "line", data: base, smooth: true, lineStyle: { width: 2.5 }, itemStyle: { color: palette[0] }, symbolSize: 5 },
+          { name: datasets[0]?.name ?? "Value", type: "line", data: base, smooth: smoothLine, lineStyle: { width: 2.5 }, itemStyle: { color: palette[0] }, symbolSize: 5 },
         ],
         legend: { ...legend, data: [datasets[0]?.name ?? "Value"] },
       };
@@ -303,7 +296,7 @@ function buildEChartsOption(
         xAxis: { type: "time", ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: [{
-          name: datasets[0]?.name ?? "Value", type: "line", smooth: true,
+          name: datasets[0]?.name ?? "Value", type: "line", smooth: smoothLine,
           data: dates.map((d, i) => [d, vals[i] ?? rand(20, 100)]),
           areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: palette[0] + "CC" }, { offset: 1, color: palette[0] + "00" }] } },
           lineStyle: { color: palette[0], width: 2.5 },
@@ -323,8 +316,8 @@ function buildEChartsOption(
         ],
         yAxis: { type: "value", ...axisTick },
         series: [
-          { name: datasets[0]?.name ?? "Series 1", type: "line", xAxisIndex: 0, data: v1, smooth: true, lineStyle: { width: 2.5 }, itemStyle: { color: palette[0] } },
-          { name: datasets[1]?.name ?? "Series 2", type: "line", xAxisIndex: 1, data: v2, smooth: true, lineStyle: { width: 2.5, type: "dashed" }, itemStyle: { color: palette[1] } },
+          { name: datasets[0]?.name ?? "Series 1", type: "line", xAxisIndex: 0, data: v1, smooth: smoothLine, lineStyle: { width: 2.5 }, itemStyle: { color: palette[0] } },
+          { name: datasets[1]?.name ?? "Series 2", type: "line", xAxisIndex: 1, data: v2, smooth: smoothLine, lineStyle: { width: 2.5, type: "dashed" }, itemStyle: { color: palette[1] } },
         ],
       };
     }
@@ -344,7 +337,7 @@ function buildEChartsOption(
         ],
         series: [
           { name: "Evaporation", type: "bar", data: evap, itemStyle: { color: palette[0] }, barMaxWidth: 30 },
-          { name: "Precipitation", type: "line", yAxisIndex: 1, data: precip, smooth: true, lineStyle: { color: palette[1], width: 2.5 }, itemStyle: { color: palette[1] } },
+          { name: "Precipitation", type: "line", yAxisIndex: 1, data: precip, smooth: smoothLine, lineStyle: { color: palette[1], width: 2.5 }, itemStyle: { color: palette[1] } },
         ],
       };
     }
@@ -356,7 +349,7 @@ function buildEChartsOption(
         yAxis: { type: "value", ...axisTick },
         dataZoom: [{ type: "slider", bottom: legendBottom ? 52 : 24, height: 20 }, { type: "inside" }],
         series: datasets.map((ds, i) => ({
-          name: ds.name, type: "line", data: ds.data, smooth: true,
+          name: ds.name, type: "line", data: ds.data, smooth: smoothLine,
           lineStyle: { width: 2 }, itemStyle: { color: palette[i % palette.length] },
         })),
       };
@@ -367,7 +360,7 @@ function buildEChartsOption(
         backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid,
         xAxis: { type: "category", data: Array.from({ length: 20 }, (_, i) => `T${i + 1}`), ...axisTick },
         yAxis: { type: "value", ...axisTick },
-        series: [{ name: "Value", type: "line", data: dyn, smooth: true, lineStyle: { color: palette[0], width: 2.5 }, itemStyle: { color: palette[0] }, areaStyle: { color: palette[0] + "30" } }],
+        series: [{ name: "Value", type: "line", data: dyn, smooth: smoothLine, lineStyle: { color: palette[0], width: 2.5 }, itemStyle: { color: palette[0] }, areaStyle: { color: palette[0] + "30" } }],
       };
     }
 
@@ -380,7 +373,7 @@ function buildEChartsOption(
         grid: { ...grid, bottom: 40 },
         xAxis: { type: "category", data: xData, ...axisTick },
         yAxis: { type: "value", ...axisTick },
-        series: [{ name: "AQI", type: "line", data: aqiData, smooth: true, symbol: "none", lineStyle: { width: 2 }, markLine: { silent: true, lineStyle: { color: axisC }, data: [{ yAxis: 50 }, { yAxis: 150 }, { yAxis: 200 }] } }],
+        series: [{ name: "AQI", type: "line", data: aqiData, smooth: smoothLine, symbol: "none", lineStyle: { width: 2 }, markLine: { silent: true, lineStyle: { color: axisC }, data: [{ yAxis: 50 }, { yAxis: 150 }, { yAxis: 200 }] } }],
       };
     }
 
@@ -399,7 +392,7 @@ function buildEChartsOption(
     case "bar-background": {
       const maxVal = Math.max(...userVals(0)) * 1.3;
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid,
+        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid: gridFull,
         xAxis: { type: "category", data: userLabels, ...axisTick },
         yAxis: { type: "value", max: maxVal, ...axisTick },
         series: [
@@ -413,7 +406,7 @@ function buildEChartsOption(
     case "bar-negative": {
       const neg = userLabels.map(() => rand(-80, 80));
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid,
+        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid: gridFull,
         xAxis: { type: "value", ...axisTick },
         yAxis: { type: "category", data: userLabels, ...axisTick },
         series: [{
@@ -469,7 +462,7 @@ function buildEChartsOption(
         yAxis: [{ type: "value", ...axisTick }, { type: "value", splitLine: { show: false }, axisLabel: { color: fg, fontFamily: "Inter", fontSize: 11 } }],
         series: [
           { name: datasets[0]?.name ?? "Bar", type: "bar", data: v1, itemStyle: { color: palette[0], borderRadius: [4, 4, 0, 0] }, barMaxWidth: 40 },
-          { name: datasets[1]?.name ?? "Line", type: "line", yAxisIndex: 1, data: v2, smooth: true, lineStyle: { color: palette[1], width: 2.5 }, itemStyle: { color: palette[1] } },
+          { name: datasets[1]?.name ?? "Line", type: "line", yAxisIndex: 1, data: v2, smooth: smoothLine, lineStyle: { color: palette[1], width: 2.5 }, itemStyle: { color: palette[1] } },
         ],
       };
     }
@@ -484,7 +477,7 @@ function buildEChartsOption(
         else { placeholder.push(running); bar.push(v); running += v; }
       });
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip: { ...tooltip, formatter: (p: any) => Array.isArray(p) ? "" : `${p.name}: ${p.data < 0 ? "-" : "+"}${Math.abs(p.data)}` }, grid,
+        backgroundColor: bg, color: palette, title: titleCfg, tooltip: { ...tooltip, formatter: (p: any) => Array.isArray(p) ? "" : `${p.name}: ${p.data < 0 ? "-" : "+"}${Math.abs(p.data)}` }, grid: gridFull,
         xAxis: { type: "category", data: items, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: [
@@ -514,7 +507,7 @@ function buildEChartsOption(
       const pops = [4700, 1400, 750, 1000, 45];
       return {
         backgroundColor: bg, color: palette, title: titleCfg, tooltip,
-        grid: { ...grid, left: 80 },
+        grid: { ...gridFull, left: 80 },
         xAxis: { type: "value", axisLabel: { formatter: (v: number) => `${v}M`, color: fg, fontFamily: "Inter", fontSize: 11 }, splitLine: { lineStyle: { color: axisC } } },
         yAxis: { type: "category", data: regions, ...axisTick },
         series: [{ type: "bar", data: pops.map((v, i) => ({ value: v, itemStyle: { color: palette[i % palette.length] } })), label: { show: true, position: "right", color: fg, fontFamily: "Inter", fontSize: 11, formatter: (p: any) => `${p.value}M` }, barMaxWidth: 32, itemStyle: { borderRadius: [0, 4, 4, 0] } }],
@@ -524,7 +517,7 @@ function buildEChartsOption(
 
     case "bar-animation":
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid,
+        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid: gridFull,
         xAxis: { type: "category", data: userLabels, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: datasets.map((ds, i) => ({
@@ -609,13 +602,13 @@ function buildEChartsOption(
     case "pie-referer": {
       const refs = [{ name: "Direct", value: 335 }, { name: "Mail", value: 310 }, { name: "Affiliate", value: 274 }, { name: "Video", value: 235 }, { name: "Search", value: 400 }];
       return {
-        backgroundColor: bg, color: palette, title: titleCfg || { text: "Referer of Website", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } }, legend,
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "Referer of Website", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        legend: { show: false },
         tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
         series: [
           { type: "pie", radius: ["0%", "30%"], label: { position: "inner", color: "#fff", fontSize: 10, fontFamily: "Inter" }, data: [{ name: "Direct+Affiliate", value: 335 + 274, itemStyle: { color: palette[0] } }, { name: "Indirect", value: 310 + 235 + 400, itemStyle: { color: palette[1] } }], itemStyle: { borderColor: bg, borderWidth: 2 } },
           { type: "pie", radius: ["35%", "60%"], label: { color: fg, fontFamily: "Inter", fontSize: 11 }, data: refs.map((r, i) => ({ ...r, itemStyle: { color: palette[i % palette.length] } })), itemStyle: { borderRadius: 4, borderColor: bg, borderWidth: 2 } },
         ],
-        legend: { show: false },
       };
     }
 
@@ -650,7 +643,7 @@ function buildEChartsOption(
       const weights = heights.map(h => Math.round(h * 0.45 - 20 + rand(-8, 8)));
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Height vs Weight", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
-        tooltip: { trigger: "item", formatter: (p: any) => `Height: ${p.data[0]}cm<br/>Weight: ${p.data[1]}kg` }, grid,
+        tooltip: { trigger: "item", formatter: (p: any) => `Height: ${p.data[0]}cm<br/>Weight: ${p.data[1]}kg` }, grid: gridFull,
         xAxis: { type: "value", name: "Height (cm)", nameTextStyle: { color: fg, fontFamily: "Inter" }, min: 145, max: 205, ...axisTick },
         yAxis: { type: "value", name: "Weight (kg)", nameTextStyle: { color: fg, fontFamily: "Inter" }, ...axisTick },
         series: [{ name: "Person", type: "scatter", data: heights.map((h, i) => [h, weights[i]]), symbolSize: 8, itemStyle: { color: palette[0], opacity: 0.7 } }],
@@ -664,7 +657,7 @@ function buildEChartsOption(
       const data = days.flatMap((_, di) => Array.from({ length: rand(3, 8) }, () => [rand(0, 23), di, rand(1, 10)]));
       return {
         backgroundColor: bg, color: palette, title: titleCfg, tooltip: { trigger: "item" },
-        grid: { ...grid, top: title ? 60 : 40, bottom: 60, left: 60 },
+        grid: { ...gridFull, top: title ? 60 : 40, bottom: 60, left: yAxisLabelWidth(days) },
         xAxis: { type: "category", data: hours, ...axisTick, splitLine: { show: true, lineStyle: { color: axisC } } },
         yAxis: { type: "category", data: days, ...axisTick, splitLine: { show: true, lineStyle: { color: axisC } } },
         series: [{ type: "scatter", data: data.map(([h, d, s]) => ({ value: [h, d], symbolSize: s * 4, itemStyle: { color: palette[d % palette.length], opacity: 0.7 } })) }],
@@ -680,7 +673,7 @@ function buildEChartsOption(
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-        grid: { ...grid, bottom: 60 },
+        grid: { ...gridFull, bottom: 60 },
         xAxis: { type: "category", data: ohlc.map(d => d[0]), ...axisTick, min: "dataMin", max: "dataMax" },
         yAxis: { type: "value", scale: true, ...axisTick },
         dataZoom: [{ type: "inside", start: 70, end: 100 }, { type: "slider", bottom: 16, height: 20 }],
@@ -726,7 +719,7 @@ function buildEChartsOption(
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { position: "top" },
-        grid: { ...grid, left: 60, bottom: 40 },
+        grid: { ...gridFull, left: 60, bottom: 40 },
         xAxis: { type: "category", data: hrs, splitArea: { show: true }, ...axisTick },
         yAxis: { type: "category", data: days2, splitArea: { show: true }, ...axisTick },
         visualMap: { min: 0, max: 100, calculable: true, orient: "horizontal", left: "center", bottom: 0, inRange: { color: [palette[0] + "20", palette[0]] }, textStyle: { color: fg } },
@@ -869,21 +862,26 @@ function buildEChartsOption(
     }
 
     case "sankey-basic": {
-      const nodes = ["A", "B", "C", "D", "E", "F"].map((n, i) => ({ name: n, itemStyle: { color: palette[i % palette.length] } }));
-      const links = [{ source: "A", target: "C", value: 40 }, { source: "A", target: "D", value: 30 }, { source: "B", target: "C", value: 20 }, { source: "B", target: "D", value: 50 }, { source: "B", target: "E", value: 15 }, { source: "C", target: "E", value: 35 }, { source: "C", target: "F", value: 25 }, { source: "D", target: "E", value: 45 }, { source: "D", target: "F", value: 35 }];
+      const snNodes = ["A", "B", "C", "D", "E", "F"].map((n, i) => ({ name: n, itemStyle: { color: palette[i % palette.length] } }));
+      const snLinks = [{ source: "A", target: "C", value: 40 }, { source: "A", target: "D", value: 30 }, { source: "B", target: "C", value: 20 }, { source: "B", target: "D", value: 50 }, { source: "B", target: "E", value: 15 }, { source: "C", target: "E", value: 35 }, { source: "C", target: "F", value: 25 }, { source: "D", target: "E", value: 45 }, { source: "D", target: "F", value: 35 }];
+      // single-char labels: ~20px each side is enough
+      const snLabelPad = (chars: number, fs = 12) => Math.ceil(chars * fs * 0.7) + 16;
       return {
         backgroundColor: bg, title: titleCfg, tooltip: { trigger: "item", triggerOn: "mousemove" },
-        series: [{ type: "sankey", data: nodes, links, left: 20, right: 20, top: title ? 52 : 20, bottom: 20, nodeWidth: 16, nodeGap: 12, emphasis: { focus: "adjacency" }, lineStyle: { color: "gradient", opacity: 0.4 }, label: { color: fg, fontFamily: "Inter", fontSize: 12 } }],
+        series: [{ type: "sankey", data: snNodes, links: snLinks, left: snLabelPad(1), right: snLabelPad(1), top: title ? 52 : 20, bottom: 20, nodeWidth: 16, nodeGap: 12, emphasis: { focus: "adjacency" }, lineStyle: { color: "gradient", opacity: 0.4 }, label: { color: fg, fontFamily: "Inter", fontSize: 12 } }],
         legend: { show: false },
       };
     }
 
     case "sankey-gradient": {
-      const nodes = ["Coal", "Natural Gas", "Oil", "Electricity", "Heat", "Industry", "Buildings", "Transport"].map((n, i) => ({ name: n, itemStyle: { color: palette[i % palette.length] } }));
-      const links = [{ source: "Coal", target: "Electricity", value: 50 }, { source: "Natural Gas", target: "Electricity", value: 30 }, { source: "Natural Gas", target: "Heat", value: 20 }, { source: "Oil", target: "Transport", value: 80 }, { source: "Oil", target: "Industry", value: 30 }, { source: "Electricity", target: "Industry", value: 40 }, { source: "Electricity", target: "Buildings", value: 35 }, { source: "Heat", target: "Buildings", value: 20 }];
+      const sgNodes = ["Coal", "Natural Gas", "Oil", "Electricity", "Heat", "Industry", "Buildings", "Transport"].map((n, i) => ({ name: n, itemStyle: { color: palette[i % palette.length] } }));
+      const sgLinks = [{ source: "Coal", target: "Electricity", value: 50 }, { source: "Natural Gas", target: "Electricity", value: 30 }, { source: "Natural Gas", target: "Heat", value: 20 }, { source: "Oil", target: "Transport", value: 80 }, { source: "Oil", target: "Industry", value: 30 }, { source: "Electricity", target: "Industry", value: 40 }, { source: "Electricity", target: "Buildings", value: 35 }, { source: "Heat", target: "Buildings", value: 20 }];
+      const sgLabelPad = (names: string[], fs = 11) => Math.ceil(Math.max(...names.map(n => n.length)) * fs * 0.7) + 16;
+      const sgLeft = sgLabelPad(["Coal", "Natural Gas", "Oil"]);       // longest left node
+      const sgRight = sgLabelPad(["Industry", "Buildings", "Transport"]); // longest right node
       return {
         backgroundColor: bg, title: titleCfg, tooltip: { trigger: "item" },
-        series: [{ type: "sankey", data: nodes, links, left: 24, right: 24, top: title ? 52 : 24, bottom: 16, nodeWidth: 18, nodeGap: 10, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, lineStyle: { color: "gradient", opacity: 0.5 }, emphasis: { focus: "adjacency" } }],
+        series: [{ type: "sankey", data: sgNodes, links: sgLinks, left: sgLeft, right: sgRight, top: title ? 52 : 24, bottom: 16, nodeWidth: 18, nodeGap: 10, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, lineStyle: { color: "gradient", opacity: 0.5 }, emphasis: { focus: "adjacency" } }],
         legend: { show: false },
       };
     }
@@ -906,7 +904,7 @@ function buildEChartsOption(
       const symbols = ["circle", "rect", "roundRect", "triangle", "diamond"];
       const v = userVals(0);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid,
+        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid: gridFull,
         xAxis: { type: "value", ...axisTick },
         yAxis: { type: "category", data: userLabels, ...axisTick },
         series: [{
@@ -939,7 +937,7 @@ function buildEChartsOption(
         yAxis: [{ gridIndex: 0, ...axisTick }, { gridIndex: 1, ...axisTick }],
         series: [
           ...datasets.map((ds, i) => ({ type: "bar" as const, seriesLayoutBy: "column", xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 30, itemStyle: { color: palette[i % palette.length], borderRadius: [4, 4, 0, 0] } })),
-          ...datasets.map((ds, i) => ({ type: "line" as const, seriesLayoutBy: "column", xAxisIndex: 1, yAxisIndex: 1, smooth: true, lineStyle: { color: palette[i % palette.length], width: 2 }, itemStyle: { color: palette[i % palette.length] } })),
+          ...datasets.map((ds, i) => ({ type: "line" as const, seriesLayoutBy: "column", xAxisIndex: 1, yAxisIndex: 1, smooth: smoothLine, lineStyle: { color: palette[i % palette.length], width: 2 }, itemStyle: { color: palette[i % palette.length] } })),
         ],
       };
     }
@@ -994,6 +992,7 @@ function EChartsView({ option, size, theme, exportRef }: {
     return () => { instanceRef.current?.dispose(); instanceRef.current = null; exportRef.current = null; };
   }, [theme]);
 
+  const optionKey = useMemo(() => JSON.stringify(option), [option]);
   useEffect(() => {
     if (!instanceRef.current) {
       const el = divRef.current; if (!el) return;
@@ -1002,43 +1001,16 @@ function EChartsView({ option, size, theme, exportRef }: {
     }
     instanceRef.current.resize({ width: size.w, height: size.h });
     instanceRef.current.setOption(option, { notMerge: true, lazyUpdate: false });
-  }, [option, size.w, size.h]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optionKey, size.w, size.h]);
 
-  return <div ref={divRef} style={{ width: size.w, height: size.h, borderRadius: 12, overflow: "hidden" }} />;
-}
-
-// ─── Chart.js View ────────────────────────────────────────────────────────────
-function ChartJsView({ chartType, labels, datasets, palette, theme, title, size, autoResponsive, chartRef }: {
-  chartType: string; labels: string[]; datasets: Dataset[]; palette: string[];
-  theme: "light" | "dark"; title: string; size: { w: number; h: number };
-  autoResponsive: boolean; chartRef: React.MutableRefObject<any>;
-}) {
   const bg = theme === "dark" ? "#1E1E2E" : "#ffffff";
-  const fg = theme === "dark" ? "#E5E7EB" : "#374151";
-  const gridC = theme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const w = size.w;
-  const isSmall = autoResponsive && w <= 400, isMid = autoResponsive && w > 400 && w <= 800;
-  const legendPos = isSmall ? "bottom" : isMid ? "bottom" : "right";
-  const titleSz = isSmall ? 14 : isMid ? 18 : 22;
-  const opts: any = {
-    responsive: true, maintainAspectRatio: false,
-    plugins: {
-      legend: { display: !isSmall, position: legendPos, labels: { color: fg, font: { family: "Inter", size: 12 } } },
-      title: { display: !!title, text: title, color: fg, font: { family: "Inter", size: titleSz, weight: "600" } },
-      tooltip: { titleFont: { family: "Inter" }, bodyFont: { family: "Inter" } },
-    },
-    scales: { x: { ticks: { color: fg, font: { family: "Inter", size: 11 } }, grid: { color: gridC } }, y: { ticks: { color: fg, font: { family: "Inter", size: 11 } }, grid: { color: gridC } } },
-  };
-  const mkDs = () => datasets.map((ds, i) => ({ label: ds.name, data: ds.data, backgroundColor: palette[i % palette.length] + "CC", borderColor: palette[i % palette.length], borderWidth: 2, pointBackgroundColor: palette[i % palette.length], fill: chartType === "area", tension: 0.4 }));
-  const box: React.CSSProperties = { width: size.w, height: size.h, background: bg, padding: 16, borderRadius: 12, boxSizing: "border-box" };
-  if (chartType === "scatter") return <div style={box}><Scatter ref={chartRef} data={{ datasets: datasets.map((ds, i) => ({ label: ds.name, data: ds.data.map((v, j) => ({ x: j + 1, y: v })), backgroundColor: palette[i % palette.length] + "CC", borderColor: palette[i % palette.length], pointRadius: 7 })) }} options={opts} /></div>;
-  if (chartType === "bubble") return <div style={box}><Bubble ref={chartRef} data={{ datasets: datasets.map((ds, i) => ({ label: ds.name, data: ds.data.map((v, j) => ({ x: j + 1, y: v, r: Math.max(4, v / 10) })), backgroundColor: palette[i % palette.length] + "99", borderColor: palette[i % palette.length] })) }} options={opts} /></div>;
-  if (chartType === "doughnut") { const v = datasets[0]?.data ?? []; return <div style={box}><Doughnut ref={chartRef} data={{ labels, datasets: [{ data: v, backgroundColor: palette.slice(0, v.length), borderWidth: 2, borderColor: bg }] }} options={{ ...opts, scales: undefined }} /></div>; }
-  if (chartType === "pie") { const v = datasets[0]?.data ?? []; return <div style={box}><Pie ref={chartRef} data={{ labels, datasets: [{ data: v, backgroundColor: palette.slice(0, v.length), borderWidth: 2, borderColor: bg }] }} options={{ ...opts, scales: undefined }} /></div>; }
-  if (chartType === "polarArea") { const v = datasets[0]?.data ?? []; return <div style={box}><PolarArea ref={chartRef} data={{ labels, datasets: [{ data: v, backgroundColor: palette.slice(0, v.length).map(c => c + "99"), borderColor: palette.slice(0, v.length) }] }} options={{ ...opts, scales: { r: { ticks: { color: fg }, grid: { color: gridC } } } }} /></div>; }
-  if (chartType === "radar") return <div style={box}><Radar ref={chartRef} data={{ labels, datasets: mkDs().map((d, i) => ({ ...d, backgroundColor: palette[i % palette.length] + "33" })) }} options={{ ...opts, scales: { r: { ticks: { color: fg }, grid: { color: gridC }, pointLabels: { color: fg, font: { family: "Inter", size: 11 } } } } }} /></div>;
-  if (chartType === "line" || chartType === "area") return <div style={box}><Line ref={chartRef} data={{ labels, datasets: mkDs() }} options={opts} /></div>;
-  return <div style={box}><Bar ref={chartRef} data={{ labels, datasets: mkDs() }} options={opts} /></div>;
+  const previewPad = size.w <= 400 ? 20 : 40;
+  return (
+    <div style={{ padding: previewPad, background: bg, borderRadius: 16, boxShadow: "0 4px 24px rgba(0,0,0,0.08)", display: "inline-block" }}>
+      <div ref={divRef} style={{ width: size.w, height: size.h, borderRadius: 8, overflow: "hidden" }} />
+    </div>
+  );
 }
 
 // ─── Section ──────────────────────────────────────────────────────────────────
@@ -1060,8 +1032,7 @@ function Section({ title, id, collapsed, onToggle, children, isDark }: {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [library, setLibrary] = useState<Library>("chartjs");
-  const [chartType, setChartType] = useState("bar");
+  const [chartType, setChartType] = useState("bar-basic");
   const [labels, setLabels] = useState(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"]);
   const [newLabel, setNewLabel] = useState("");
   const [datasets, setDatasets] = useState<Dataset[]>([
@@ -1077,11 +1048,11 @@ export default function App() {
   const [customWidth, setCustomWidth] = useState(800);
   const [customHeight, setCustomHeight] = useState(500);
   const [autoResponsive, setAutoResponsive] = useState(true);
+  const [smoothLine, setSmoothLine] = useState(true);
   const [chartTitle, setChartTitle] = useState("Monthly Revenue Growth 2024");
   const [editingTitle, setEditingTitle] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  const chartjsRef = useRef<any>(null);
   const echartsExportRef = useRef<echarts.ECharts | null>(null);
 
   const effectivePalette = palette.map((c, i) => manualPalette[i] || c);
@@ -1094,8 +1065,6 @@ export default function App() {
   useEffect(() => {
     if (isValidHex(primaryColor)) { setPalette(generatePalette(primaryColor)); setManualPalette([]); }
   }, [primaryColor]);
-
-  useEffect(() => { setChartType("bar"); }, [library]);
 
   const toggleSection = useCallback((id: string) => {
     setCollapsed(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1117,43 +1086,86 @@ export default function App() {
 
   const flashCopied = (key: string) => { setCopiedKey(key); setTimeout(() => setCopiedKey(null), 1800); };
 
-  const getPngDataUrl = (): string | null => {
-    if (library === "chartjs" && chartjsRef.current) {
-      return chartjsRef.current.canvas.toDataURL("image/png");
-    } else if (library === "echarts" && echartsExportRef.current) {
-      return echartsExportRef.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: theme === "dark" ? "#1E1E2E" : "#ffffff" });
-    }
-    return null;
+  // modal state for copy preview
+  const [previewModal, setPreviewModal] = useState<{ type: "png" | "svg"; content: string } | null>(null);
+
+  const EXPORT_PAD = 40;
+  const exportBg = theme === "dark" ? "#1E1E2E" : "#ffffff";
+
+  const getPngDataUrl = (): Promise<string | null> => {
+    if (!echartsExportRef.current) return Promise.resolve(null);
+    const chartUrl = echartsExportRef.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: exportBg });
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        const pad = EXPORT_PAD * 2; // match pixelRatio=2
+        const off = document.createElement("canvas");
+        off.width = img.width + pad * 2;
+        off.height = img.height + pad * 2;
+        const ctx = off.getContext("2d")!;
+        ctx.fillStyle = exportBg;
+        ctx.fillRect(0, 0, off.width, off.height);
+        ctx.drawImage(img, pad, pad);
+        resolve(off.toDataURL("image/png"));
+      };
+      img.onerror = () => resolve(chartUrl); // fallback: return without padding
+      img.src = chartUrl;
+    });
   };
 
   const getSvgString = (): string | null => {
-    if (library === "echarts" && echartsExportRef.current) {
-      const option = buildEChartsOption(chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive);
-      const inst = echarts.init(document.createElement("div"), theme === "dark" ? "dark" : undefined, { renderer: "svg", width: chartSize.w, height: chartSize.h });
-      inst.setOption(option, { notMerge: true });
-      const s = inst.renderToSVGString();
-      inst.dispose();
-      return s;
-    } else if (library === "chartjs" && chartjsRef.current) {
-      const dataUrl = (chartjsRef.current.canvas as HTMLCanvasElement).toDataURL("image/png");
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="${chartSize.w}" height="${chartSize.h}"><image href="${dataUrl}" width="${chartSize.w}" height="${chartSize.h}"/></svg>`;
-    }
-    return null;
+    const option = buildEChartsOption(chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine);
+    const exportOption = { ...option, animation: false, animationDuration: 0 };
+    const inst = echarts.init(document.createElement("div"), theme === "dark" ? "dark" : undefined, { renderer: "svg", width: chartSize.w, height: chartSize.h });
+    inst.setOption(exportOption, { notMerge: true, silent: true });
+    const inner = inst.renderToSVGString();
+    inst.dispose();
+    const pw = chartSize.w + EXPORT_PAD * 2;
+    const ph = chartSize.h + EXPORT_PAD * 2;
+    // Wrap with padded outer SVG, translate inner chart by pad
+    const wrapped = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}">
+  <rect width="${pw}" height="${ph}" fill="${exportBg}"/>
+  <g transform="translate(${EXPORT_PAD},${EXPORT_PAD})">${inner}</g>
+</svg>`;
+    return wrapped;
   };
 
-  const downloadPng = () => { const url = getPngDataUrl(); if (!url) return; const a = document.createElement("a"); a.download = "chart.png"; a.href = url; a.click(); setOpenMenu(null); };
+  const downloadPng = async () => {
+    const url = await getPngDataUrl(); if (!url) return;
+    const a = document.createElement("a"); a.download = "chart.png"; a.href = url; a.click();
+    setOpenMenu(null);
+  };
+
   const copyPng = async () => {
-    const url = getPngDataUrl(); if (!url) return;
-    const res = await fetch(url); const blob = await res.blob();
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-    flashCopied("png"); setOpenMenu(null);
+    const url = await getPngDataUrl(); if (!url) return;
+    setOpenMenu(null);
+    try {
+      const res = await fetch(url); const blob = await res.blob();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      flashCopied("png");
+    } catch {
+      // Clipboard blocked — show in-app modal so user can right-click → Copy Image
+      const padded = await getPngDataUrl();
+      if (padded) setPreviewModal({ type: "png", content: padded });
+    }
   };
 
-  const downloadSvg = () => { const s = getSvgString(); if (!s) return; const a = document.createElement("a"); a.download = "chart.svg"; a.href = URL.createObjectURL(new Blob([s], { type: "image/svg+xml;charset=utf-8" })); a.click(); setOpenMenu(null); };
+  const downloadSvg = () => {
+    const s = getSvgString(); if (!s) return;
+    const a = document.createElement("a"); a.download = "chart.svg"; a.href = URL.createObjectURL(new Blob([s], { type: "image/svg+xml;charset=utf-8" })); a.click();
+    setOpenMenu(null);
+  };
+
   const copySvg = async () => {
     const s = getSvgString(); if (!s) return;
-    await navigator.clipboard.writeText(s);
-    flashCopied("svg"); setOpenMenu(null);
+    setOpenMenu(null);
+    try {
+      await navigator.clipboard.writeText(s);
+      flashCopied("svg");
+    } catch {
+      // Clipboard blocked — show in-app modal so user can copy the text
+      setPreviewModal({ type: "svg", content: s });
+    }
   };
 
   const isDark = theme === "dark";
@@ -1165,9 +1177,11 @@ export default function App() {
   const inputBg = isDark ? "#1E1E35" : "#FFFFFF";
   const inputBorder = isDark ? "#3D3D5C" : "#E5E7EB";
 
-  const echartsOption = library === "echarts"
-    ? buildEChartsOption(chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive)
-    : null;
+  const echartsOption = useMemo(
+    () => buildEChartsOption(chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize.w, chartSize.h, autoResponsive, smoothLine]
+  );
 
   return (
     <div style={{ fontFamily: "Inter, sans-serif", background: canvasBg, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
@@ -1221,14 +1235,14 @@ export default function App() {
               <Download size={12} />SVG<ChevronDown size={10} />
             </button>
             {openMenu === "svg" && (
-              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 148, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
+              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
                 <button onClick={downloadSvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
                   <Download size={13} />다운로드 (.svg)
                 </button>
                 <div style={{ height: 1, background: panelBorder }} />
                 <button onClick={copySvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2"/></svg>
-                  SVG 코드 복사
+                  SVG 코드 복사 (벡터)
                 </button>
               </div>
             )}
@@ -1244,53 +1258,27 @@ export default function App() {
           <div style={{ padding: "0 20px" }}>
 
             {/* Library */}
-            <Section title="Library" id="library" collapsed={collapsed.has("library")} onToggle={toggleSection} isDark={isDark}>
-              <div style={{ display: "flex", gap: 4, padding: 4, borderRadius: 8, background: isDark ? "#0F0F1A" : "#F3F4F6" }}>
-                {(["chartjs", "echarts"] as Library[]).map(lib => (
-                  <button key={lib} onClick={() => setLibrary(lib)} style={{ flex: 1, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter", border: "none", background: library === lib ? inputBg : "transparent", color: library === lib ? sectionText : subText, boxShadow: library === lib ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
-                    {lib === "chartjs" ? "Chart.js" : "ECharts"}
-                  </button>
-                ))}
-                <button style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: subText }}><Plus size={14} /></button>
-              </div>
-            </Section>
-
             {/* Chart Type */}
             <Section title="Chart Type" id="chartType" collapsed={collapsed.has("chartType")} onToggle={toggleSection} isDark={isDark}>
-              {library === "chartjs" ? (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                  {CHARTJS_TYPES.map(t => {
-                    const active = chartType === t.id;
-                    return (
-                      <button key={t.id} onClick={() => setChartType(t.id)}
-                        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: 8, borderRadius: 8, border: `1px solid ${active ? "#6366F1" : inputBorder}`, background: active ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: active ? "#6366F1" : subText, fontSize: 10, fontWeight: 500, cursor: "pointer", fontFamily: "Inter" }}>
-                        <ChartIcon type={t.id} color={active ? "#6366F1" : subText} />
-                        {t.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                  {ECHARTS_CATALOGUE.map(cat => (
-                    <div key={cat.cat}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: subText, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8, paddingLeft: 2 }}>{cat.cat}</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
-                        {cat.items.map(t => {
-                          const active = chartType === t.id;
-                          return (
-                            <button key={t.id} onClick={() => setChartType(t.id)} title={t.label}
-                              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "6px 4px", borderRadius: 8, border: `1px solid ${active ? "#6366F1" : inputBorder}`, background: active ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: active ? "#6366F1" : subText, fontSize: 9, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", lineHeight: 1.3, textAlign: "center" }}>
-                              <ChartIcon type={t.id} color={active ? "#6366F1" : subText} />
-                              {t.label}
-                            </button>
-                          );
-                        })}
-                      </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {ECHARTS_CATALOGUE.map(cat => (
+                  <div key={cat.cat}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: subText, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8, paddingLeft: 2 }}>{cat.cat}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                      {cat.items.map(t => {
+                        const active = chartType === t.id;
+                        return (
+                          <button key={t.id} onClick={() => setChartType(t.id)} title={t.label}
+                            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "6px 4px", borderRadius: 8, border: `1px solid ${active ? "#6366F1" : inputBorder}`, background: active ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: active ? "#6366F1" : subText, fontSize: 9, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", lineHeight: 1.3, textAlign: "center" }}>
+                            <ChartIcon type={t.id} color={active ? "#6366F1" : subText} />
+                            {t.label}
+                          </button>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
-              )}
+                  </div>
+                ))}
+              </div>
             </Section>
 
             {/* Data Input */}
@@ -1341,6 +1329,16 @@ export default function App() {
             {/* Style Settings */}
             <Section title="Style Settings" id="style" collapsed={collapsed.has("style")} onToggle={toggleSection} isDark={isDark}>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 13, color: sectionText }}>Line Curve</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {([true, false] as const).map(v => (
+                      <button key={String(v)} onClick={() => setSmoothLine(v)} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", border: `1px solid ${smoothLine === v ? "#6366F1" : inputBorder}`, background: smoothLine === v ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: smoothLine === v ? "#6366F1" : subText }}>
+                        {v ? "Smooth" : "Sharp"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 13, color: sectionText }}>Theme</span>
                   <button onClick={() => setTheme(t => t === "light" ? "dark" : "light")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter" }}>
@@ -1403,12 +1401,8 @@ export default function App() {
         </div>
 
         {/* Preview */}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", padding: 32, background: canvasBg }}>
-          {library === "chartjs" ? (
-            <ChartJsView chartType={chartType} labels={labels} datasets={datasets} palette={effectivePalette} theme={theme} title={chartTitle} size={chartSize} autoResponsive={autoResponsive} chartRef={chartjsRef} />
-          ) : echartsOption ? (
-            <EChartsView option={echartsOption} size={chartSize} theme={theme} exportRef={echartsExportRef} />
-          ) : null}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", padding: 40, background: canvasBg }}>
+          <EChartsView option={echartsOption} size={chartSize} theme={theme} exportRef={echartsExportRef} />
         </div>
       </div>
 
@@ -1425,11 +1419,69 @@ export default function App() {
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span>Library:</span>
-          <span style={{ fontWeight: 600, color: "#6366F1" }}>{library === "chartjs" ? "Chart.js" : "ECharts"}</span>
+          <span style={{ fontWeight: 600, color: "#6366F1" }}>Apache ECharts</span>
           <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "#6366F1", color: "#fff" }}>SYNC LIVE</span>
         </div>
       </div>
+
+      {/* Copy Preview Modal */}
+      {previewModal && (
+        <div onClick={() => setPreviewModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: isDark ? "#1E1E2E" : "#fff", borderRadius: 12, padding: 24, maxWidth: "90vw", maxHeight: "90vh", overflow: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: sectionText, marginBottom: 4 }}>
+                  {previewModal.type === "png" ? "이미지 복사" : "SVG 코드 복사"}
+                </div>
+                <div style={{ fontSize: 12, color: subText }}>
+                  {previewModal.type === "png"
+                    ? "이미지를 우클릭 → '이미지 복사' 후 Figma에 붙여넣기 하세요"
+                    : "아래 코드를 복사 → Figma에서 Edit > Paste here 로 벡터로 붙여넣기 하세요"}
+                </div>
+              </div>
+              <button onClick={() => setPreviewModal(null)} style={{ background: "none", border: "none", cursor: "pointer", color: subText, display: "flex", flexShrink: 0 }}>
+                <X size={18} />
+              </button>
+            </div>
+            {previewModal.type === "png" ? (
+              <img src={previewModal.content} alt="chart" style={{ maxWidth: "100%", borderRadius: 8, border: `1px solid ${panelBorder}`, display: "block" }} />
+            ) : (
+              <textarea
+                readOnly
+                value={previewModal.content}
+                onClick={e => (e.target as HTMLTextAreaElement).select()}
+                style={{ width: "min(640px, 80vw)", height: 320, padding: 12, borderRadius: 8, border: `1px solid ${panelBorder}`, background: isDark ? "#0F0F1A" : "#F3F4F6", color: sectionText, fontSize: 11, fontFamily: "monospace", resize: "vertical", outline: "none" }}
+              />
+            )}
+            {previewModal.type === "svg" && (
+              <button
+                onClick={() => {
+                  const text = previewModal.content;
+                  // Try modern clipboard API first
+                  if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(text).then(() => { flashCopied("svg"); setPreviewModal(null); }).catch(() => fallbackCopy(text));
+                  } else {
+                    fallbackCopy(text);
+                  }
+                  function fallbackCopy(t: string) {
+                    // execCommand fallback — works even in sandboxed iframes
+                    const ta = document.createElement("textarea");
+                    ta.value = t;
+                    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+                    document.body.appendChild(ta);
+                    ta.focus(); ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                    flashCopied("svg"); setPreviewModal(null);
+                  }
+                }}
+                style={{ alignSelf: "flex-start", padding: "7px 16px", borderRadius: 6, border: "none", background: "#6366F1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter" }}>
+                SVG 코드 복사
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

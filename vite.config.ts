@@ -21,9 +21,10 @@ export default defineConfig({
     figmaAssetResolver(),
     react(),
     tailwindcss(),
-    // Stub out the Figma Make virtual module so plain Vite builds don't fail
+    // Stub only during `vite build` (Vercel). Figma Make's own serve handles this module natively.
     {
       name: 'figma-stub',
+      apply: 'build',
       resolveId(id) { if (id === 'figma:foundry-client-api') return id; },
       load(id) { if (id === 'figma:foundry-client-api') return 'export default {}'; },
     },
