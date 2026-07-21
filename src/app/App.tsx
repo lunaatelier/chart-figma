@@ -42,7 +42,6 @@ export const ECHARTS_CATALOGUE = [
   {
     cat: "Line", items: [
       { id: "line-basic", label: "Basic Line" },
-      { id: "line-stacked", label: "Stacked Line" },
       { id: "line-area-stacked", label: "Stacked Area" },
       { id: "line-bump", label: "Bump Chart" },
       { id: "line-confidence", label: "Confidence Band" },
@@ -220,19 +219,6 @@ function buildEChartsOption(
         })),
       };
 
-    case "line-stacked": {
-      const vals = datasets.map(ds => ds.data);
-      return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip, grid,
-        xAxis: { type: "category", data: userLabels, ...axisTick },
-        yAxis: { type: "value", ...axisTick },
-        series: datasets.map((ds, i) => ({
-          name: ds.name, type: "line", stack: "total", data: ds.data,
-          lineStyle: { width: 2 }, itemStyle: { color: palette[i % palette.length] },
-        })),
-      };
-    }
-
     case "line-area-stacked":
       return {
         backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip, grid,
@@ -269,8 +255,8 @@ function buildEChartsOption(
         xAxis: { type: "category", data: userLabels, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: [
-          { name: "Upper", type: "line", data: upper, lineStyle: { opacity: 0 }, stack: "confidence", symbol: "none", color: "transparent" },
-          { name: "Band", type: "line", data: lower.map((v, i) => upper[i] - v), lineStyle: { opacity: 0 }, areaStyle: { color: palette[0] + "40" }, stack: "confidence", symbol: "none", color: "transparent" },
+          { name: "Lower", type: "line", data: lower, lineStyle: { opacity: 0 }, stack: "confidence-band", symbol: "none" },
+          { name: "Upper", type: "line", data: upper.map((v, i) => +(v - lower[i]).toFixed(1)), lineStyle: { opacity: 0 }, areaStyle: { color: palette[0] + "40" }, stack: "confidence-band", symbol: "none" },
           { name: datasets[0]?.name ?? "Value", type: "line", data: base, smooth: smoothLine, lineStyle: { width: 2.5 }, itemStyle: { color: palette[0] }, symbolSize: 5 },
         ],
         legend: { ...legend, data: [datasets[0]?.name ?? "Value"] },
