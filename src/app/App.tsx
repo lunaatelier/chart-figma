@@ -222,6 +222,16 @@ function buildEChartsOption(
   const grid = { left: gridL, right: legendBottom ? 8 : 96, top: topPad, bottom: isMid ? 60 : 28, containLabel: true };
   const gridFull = { left: gridL, right: isSmall ? 8 : 12, top: topPad, bottom: 28, containLabel: true };
   const tooltip: echarts.TooltipComponentOption = { trigger: "axis", backgroundColor: theme === "dark" ? "#1f2937" : "#fff", borderColor: axisC, textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 } };
+  // A second/opposite value yAxis needs room reserved on the right regardless of legend width —
+  // "named" (has its own name label) needs more than a bare tick-only axis.
+  const dualAxisNameRight = isSmall ? 46 : 64;
+  const dualAxisTickRight = isSmall ? 28 : 40;
+  const withMinRight = (g: { right: number } & Record<string, unknown>, min: number) => ({ ...g, right: Math.max(g.right, min) });
+  // Charts with a right-side value axis put the legend at the bottom regardless of width,
+  // since a vertical right-aligned legend would collide with that axis's name/ticks.
+  const legendAxisSafe: echarts.LegendComponentOption = { show: !isSmall, bottom: 4, left: "center", itemGap: 16, textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 10 : 12 } };
+  // Right margin sized to the longest end-of-line label text instead of a guessed constant.
+  const endLabelRight = (labelsArr: string[], fontSz = 11) => Math.max(...labelsArr.map(l => l.length)) * fontSz * 0.62 + 24;
 
   // ── helpers ──
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -339,8 +349,8 @@ function buildEChartsOption(
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: "cross" } },
-        legend: { ...legend, data: ["Evaporation", "Precipitation"] },
-        grid,
+        legend: { ...legendAxisSafe, data: ["Evaporation", "Precipitation"] },
+        grid: withMinRight(grid, dualAxisNameRight),
         xAxis: { type: "category", data: userLabels, ...axisTick },
         yAxis: [
           { type: "value", name: "Evap (ml)", nameTextStyle: { color: fg, fontFamily: "Inter", fontSize: 11 }, ...axisTick },
@@ -414,9 +424,10 @@ function buildEChartsOption(
       const rainData = rdates.map(() => (Math.random() < 0.12 ? +(Math.random() * 3).toFixed(2) : 0));
       return {
         backgroundColor: bg, title: titleCfg || { text: "Rainfall and Flow Relationship", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
-        grid: { ...gridFull, bottom: 70 },
+        // extra bottom room stacks: xAxis labels, then legend, then the dataZoom slider
+        grid: withMinRight({ ...gridFull, bottom: 88 }, dualAxisNameRight),
         tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-        legend: { ...legend, data: ["Flow", "Rainfall"] },
+        legend: { ...legendAxisSafe, bottom: 34, data: ["Flow", "Rainfall"] },
         dataZoom: [{ show: true, start: 40, end: 70, bottom: 8 }, { type: "inside", start: 40, end: 70 }],
         xAxis: { type: "category", boundaryGap: false, data: rdates, axisLine: { onZero: false, lineStyle: { color: axisC } }, axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz } },
         yAxis: [
@@ -448,7 +459,7 @@ function buildEChartsOption(
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Income Growth by Country", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: { trigger: "axis" },
-        grid: { ...grid, right: 110 },
+        grid: { ...grid, right: endLabelRight(countries, 11) },
         xAxis: { type: "category", data: years, ...axisTick },
         yAxis: { type: "value", name: "Income", nameTextStyle: { color: fg, fontFamily: "Inter" }, ...axisTick },
         series: raceSeries,
@@ -537,7 +548,7 @@ function buildEChartsOption(
     case "bar-mixed": {
       const v1 = userVals(0), v2 = userVals(1);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: "cross" } }, grid,
+        backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: "cross" } }, grid: withMinRight(grid, dualAxisTickRight),
         xAxis: { type: "category", data: userLabels, ...axisTick },
         yAxis: [{ type: "value", ...axisTick }, { type: "value", splitLine: { show: false }, axisLabel: { color: fg, fontFamily: "Inter", fontSize: 11 } }],
         series: [
@@ -569,16 +580,28 @@ function buildEChartsOption(
     }
 
     case "bar-race": {
+      // A real race needs values that change over time, not one static snapshot — ECharts'
+      // timeline feature drives that: each timeline entry is a frame, autoPlay steps through
+      // them, and realtimeSort animates the bars reordering as values change between frames.
       const countries = ["🇺🇸 USA", "🇨🇳 China", "🇯🇵 Japan", "🇩🇪 Germany", "🇬🇧 UK", "🇫🇷 France", "🇮🇳 India"];
-      const vals = countries.map(() => rand(20, 100)).sort((a, b) => a - b);
+      const years = Array.from({ length: 10 }, (_, i) => String(2015 + i));
+      let vals = countries.map(() => rand(20, 100));
+      const frames = years.map(() => { vals = vals.map(v => Math.max(10, v + rand(-8, 15))); return [...vals]; });
       return {
-        backgroundColor: bg, color: palette, title: { ...titleCfg, text: title || "Bar Race Snapshot" },
-        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-        grid: { ...grid, left: 110, right: 60 },
-        xAxis: { max: "dataMax", ...axisTick },
-        yAxis: { type: "category", data: countries, animationDuration: 300, animationDurationUpdate: 1500, ...axisTick },
-        series: [{ realtimeSort: true, type: "bar", data: vals, label: { show: true, position: "right", color: fg, fontFamily: "Inter", fontSize: 11 }, itemStyle: { color: (p: any) => palette[p.dataIndex % palette.length] }, barMaxWidth: 36 }],
-        animationDuration: 0, animationDurationUpdate: 2000, animationEasing: "linear", animationEasingUpdate: "linear",
+        baseOption: {
+          backgroundColor: bg, color: palette, title: { ...titleCfg, text: title || "Bar Race" },
+          tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+          grid: { ...grid, left: 110, right: 60 },
+          xAxis: { max: "dataMax", ...axisTick },
+          yAxis: { type: "category", data: countries, inverse: true, animationDuration: 300, animationDurationUpdate: 800, ...axisTick },
+          series: [{ realtimeSort: true, type: "bar", label: { show: true, position: "right", color: fg, fontFamily: "Inter", fontSize: 11 }, itemStyle: { color: (p: any) => palette[p.dataIndex % palette.length] }, barMaxWidth: 36 }],
+          animationDuration: 0, animationDurationUpdate: 800, animationEasing: "linear", animationEasingUpdate: "linear",
+        },
+        timeline: { show: false, autoPlay: true, playInterval: 1300, loop: true, data: years },
+        options: frames.map((f, i) => ({
+          series: [{ data: f }],
+          graphic: { elements: [{ type: "text", right: 60, bottom: 24, style: { text: years[i], font: "bold 26px Inter", fill: axisC } }] },
+        })),
       };
     }
 
@@ -602,6 +625,7 @@ function buildEChartsOption(
         yAxis: { type: "value", ...axisTick },
         series: datasets.map((ds, i) => ({
           name: ds.name, type: "bar", data: ds.data.map((v, j) => ({ value: v, itemStyle: { color: palette[(i + j) % palette.length] } })),
+          emphasis: { focus: "series" as const },
           animationDelay: (idx: number) => idx * 80 + i * 300,
           barMaxWidth: 40, itemStyle: { borderRadius: [4, 4, 0, 0] },
         })),
@@ -708,8 +732,10 @@ function buildEChartsOption(
     case "scatter-bubble":
       return {
         backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip: { trigger: "item" }, grid,
-        xAxis: { type: "value", ...axisTick },
-        yAxis: { type: "value", ...axisTick },
+        // boundaryGap pads the value-axis domain so the largest bubbles (and the last
+        // category's axis label) don't get clipped right at the plot edge.
+        xAxis: { type: "value", boundaryGap: ["8%", "8%"], ...axisTick },
+        yAxis: { type: "value", boundaryGap: ["8%", "8%"], ...axisTick },
         series: datasets.map((ds, i) => ({
           name: ds.name, type: "scatter",
           data: ds.data.map((v, j) => [j + 1, v, Math.max(8, v * 0.4)]),
@@ -1001,23 +1027,22 @@ function buildEChartsOption(
     }
 
     case "share-dataset": {
+      // Pie (top) and the line series (bottom) both read the same `dataset` component —
+      // the pie summarizes the first dataset's contribution across labels via `encode`,
+      // the lines plot every dataset's trend across the same labels. No live cross-hover
+      // linking (that needs a chart-instance event listener EChartsView doesn't expose yet).
+      const firstDs = datasets[0]?.name ?? "Dataset 1";
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-        legend,
+        legend: { ...legend, data: datasets.map(d => d.name) },
         dataset: { source: [["product", ...datasets.map(d => d.name)], ...userLabels.map((l, i) => [l, ...datasets.map(d => d.data[i] ?? 0)])] },
-        grid: [
-          { left: 48, right: legendBottom ? 12 : 96, top: title ? 52 : 20, bottom: "55%", containLabel: true },
-          { left: 48, right: legendBottom ? 12 : 96, top: "55%", bottom: 28, containLabel: true },
-        ],
-        xAxis: [
-          { type: "category", gridIndex: 0, ...axisTick },
-          { type: "category", gridIndex: 1, ...axisTick },
-        ],
-        yAxis: [{ gridIndex: 0, ...axisTick }, { gridIndex: 1, ...axisTick }],
+        grid: [{ left: 48, right: legendBottom ? 12 : 96, top: "58%", bottom: 28, containLabel: true }],
+        xAxis: [{ type: "category", gridIndex: 0, ...axisTick }],
+        yAxis: [{ gridIndex: 0, ...axisTick }],
         series: [
-          ...datasets.map((ds, i) => ({ type: "bar" as const, seriesLayoutBy: "column", xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 30, itemStyle: { color: palette[i % palette.length], borderRadius: [4, 4, 0, 0] } })),
-          ...datasets.map((ds, i) => ({ type: "line" as const, seriesLayoutBy: "column", xAxisIndex: 1, yAxisIndex: 1, smooth: smoothLine, lineStyle: { color: palette[i % palette.length], width: 2 }, itemStyle: { color: palette[i % palette.length] } })),
+          { type: "pie", id: "share-pie", radius: isSmall ? "26%" : "30%", center: ["50%", isSmall ? "24%" : "27%"], encode: { itemName: "product", value: firstDs }, itemStyle: { borderRadius: 4, borderColor: bg, borderWidth: 2 }, label: { color: fg, fontFamily: "Inter", fontSize: 11, formatter: "{b}: {d}%" }, emphasis: { focus: "self" } },
+          ...datasets.map((ds, i) => ({ type: "line" as const, seriesLayoutBy: "column", xAxisIndex: 0, yAxisIndex: 0, smooth: smoothLine, lineStyle: { color: palette[i % palette.length], width: 2 }, itemStyle: { color: palette[i % palette.length] } })),
         ],
       };
     }
@@ -1142,8 +1167,9 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <rect x="4" y="5" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="7.2" y="5" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="10.4" y="5" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="13.6" y="5" width="2.2" height="2.2" rx="0.5" fill={c} />
     </>,
     "share-dataset": <>
-      <rect x="4" y="3" width="3" height="6" fill={c} opacity="0.6" /><rect x="9" y="1" width="3" height="8" fill={c} opacity="0.6" /><rect x="14" y="4" width="3" height="5" fill={c} opacity="0.6" />
-      <line x1="2" y1="11.5" x2="22" y2="11.5" stroke={c} strokeWidth="1" strokeDasharray="1.5 1.5" opacity="0.5" />
+      <circle cx="12" cy="6.5" r="4.5" stroke={c} strokeWidth="1.4" fill="none" />
+      <path d="M12 2a4.5 4.5 0 0 1 3.9 6.75" fill={c} opacity="0.55" />
+      <line x1="2" y1="13" x2="22" y2="13" stroke={c} strokeWidth="1" strokeDasharray="1.5 1.5" opacity="0.5" />
       <path d="M4 19l4-3 4 2 4-4 4 2" stroke={c} strokeWidth="1.6" strokeLinecap="round" fill="none" />
     </>,
   };
