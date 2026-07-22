@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import * as echarts from "echarts";
-import { ChevronDown, ChevronUp, Plus, X, Trash2, Download, RefreshCw, Shuffle, Edit2, Check, Sun, Moon } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, X, Trash2, Download, RefreshCw, Shuffle, Edit2, Check, Sun, Moon, Info } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type SizePreset = "S" | "M" | "L" | "Custom";
@@ -48,10 +48,13 @@ export const ECHARTS_CATALOGUE = [
       { id: "line-step", label: "Step Line" },
       { id: "line-area-time", label: "Area + Time" },
       { id: "line-multiple-x", label: "Multiple X Axes" },
-      { id: "line-rainfall", label: "Rainfall" },
+      { id: "line-rainfall", label: "Rainfall vs Evaporation" },
       { id: "line-datazoom", label: "DataZoom" },
       { id: "line-dynamic", label: "Dynamic Data" },
       { id: "line-aqi", label: "Beijing AQI" },
+      { id: "large-scale-area", label: "Large Scale Area" },
+      { id: "area-rainfall", label: "Rainfall" },
+      { id: "line-race", label: "Line Race" },
     ],
   },
   {
@@ -132,6 +135,28 @@ export const ECHARTS_CATALOGUE = [
   },
 ];
 
+// Chart types that render fixed preset/random data and ignore Data Input entirely
+const STATIC_DEMO_CHARTS = new Set([
+  "line-dynamic", "line-aqi",
+  "bar-waterfall", "bar-race", "bar-world-pop",
+  "pie-referer",
+  "candle-basic", "candle-large",
+  "heat-cartesian", "heat-calendar",
+  "radar-browsers",
+  "tree-lr", "treemap-sunburst", "sankey-basic", "sankey-gradient",
+  "scatter-distribution", "scatter-single",
+  "large-scale-area", "area-rainfall", "line-race",
+]);
+// Chart types that only ever read datasets[0] — extra datasets are silently ignored
+const FIRST_DATASET_ONLY_CHARTS = new Set([
+  "pie-basic", "pie-doughnut", "pie-half", "pie-rose", "pie-label-adjust",
+  "treemap-basic", "funnel-basic", "pictorial-bar",
+]);
+// Gauge charts read a single number (data[0]), not the full label/value grid
+const SINGLE_VALUE_CHARTS = new Set(["gauge-simple", "gauge-speed"]);
+const MULTI_SINGLE_VALUE_CHARTS = new Set(["gauge-progress"]);
+// Charts where the shared `labels` state feeds the Y axis (category) instead of X — panel copy should flip
+const Y_AXIS_CATEGORY_CHARTS = new Set(["bar-negative", "bar-horizontal", "pictorial-bar"]);
 
 // ─── Sample Data Generators ───────────────────────────────────────────────────
 function genDates(count: number, startYear = 2024) {
@@ -360,6 +385,75 @@ function buildEChartsOption(
         xAxis: { type: "category", data: xData, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: [{ name: "AQI", type: "line", data: aqiData, smooth: smoothLine, symbol: "none", lineStyle: { width: 2 }, markLine: { silent: true, lineStyle: { color: axisC }, data: [{ yAxis: 50 }, { yAxis: 150 }, { yAxis: 200 }] } }],
+      };
+    }
+
+    case "large-scale-area": {
+      const n = 1500;
+      const oneDay = 24 * 3600 * 1000;
+      let t = +new Date(2020, 0, 1);
+      const ldata: [number, number][] = [[t, rand(80, 160)]];
+      for (let i = 1; i < n; i++) { t += oneDay; ldata.push([t, Math.max(0, ldata[i - 1][1] + rand(-12, 12))]); }
+      return {
+        backgroundColor: bg, title: titleCfg || { text: "Large-Scale Area Chart", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: { trigger: "axis", axisPointer: { type: "line" } },
+        grid: gridFull,
+        xAxis: { type: "time", boundaryGap: false, ...axisTick },
+        yAxis: { type: "value", boundaryGap: [0, "100%"], ...axisTick },
+        dataZoom: [{ type: "inside", start: 0, end: 12 }, { start: 0, end: 12, height: 16, bottom: 6 }],
+        series: [{ type: "line", smooth: true, symbol: "none", areaStyle: { color: palette[0] + "55" }, lineStyle: { color: palette[0], width: 1.5 }, data: ldata }],
+        legend: { show: false },
+      };
+    }
+
+    case "area-rainfall": {
+      const hours = 240;
+      const rdates = Array.from({ length: hours }, (_, i) => { const d = new Date(2024, 5, 1); d.setHours(d.getHours() + i); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`; });
+      let flow = 0.6;
+      const flowData = rdates.map(() => { flow = Math.max(0.2, flow + rand(-10, 10) / 100); return +flow.toFixed(2); });
+      const rainData = rdates.map(() => (Math.random() < 0.12 ? +(Math.random() * 3).toFixed(2) : 0));
+      return {
+        backgroundColor: bg, title: titleCfg || { text: "Rainfall and Flow Relationship", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        grid: { ...gridFull, bottom: 70 },
+        tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+        legend: { ...legend, data: ["Flow", "Rainfall"] },
+        dataZoom: [{ show: true, start: 40, end: 70, bottom: 8 }, { type: "inside", start: 40, end: 70 }],
+        xAxis: { type: "category", boundaryGap: false, data: rdates, axisLine: { onZero: false, lineStyle: { color: axisC } }, axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz } },
+        yAxis: [
+          { type: "value", name: "Flow", nameTextStyle: { color: fg, fontFamily: "Inter" }, ...axisTick },
+          { type: "value", name: "Rainfall", nameLocation: "start", inverse: true, ...axisTick },
+        ],
+        series: [
+          { name: "Flow", type: "line", areaStyle: { opacity: 0.5 }, lineStyle: { width: 1, color: palette[0] }, itemStyle: { color: palette[0] }, symbol: "none", data: flowData },
+          { name: "Rainfall", type: "line", yAxisIndex: 1, areaStyle: { opacity: 0.5 }, lineStyle: { width: 1, color: palette[1] }, itemStyle: { color: palette[1] }, symbol: "none", data: rainData },
+        ],
+      };
+    }
+
+    case "line-race": {
+      const countries = ["Finland", "France", "Germany", "Norway", "Poland", "Portugal"];
+      const years = Array.from({ length: 8 }, (_, i) => String(1950 + i * 10));
+      const raceSeries = countries.map((name, ci) => {
+        let v = rand(800, 2000);
+        const data = years.map(() => { v = Math.max(500, v + rand(-50, 400)); return v; });
+        return {
+          type: "line" as const, name, showSymbol: false, data,
+          endLabel: { show: true, formatter: "{a}", color: fg, fontFamily: "Inter", fontSize: 11 },
+          labelLayout: { moveOverlap: "shiftY" as const },
+          emphasis: { focus: "series" as const },
+          lineStyle: { width: 2.5, color: palette[ci % palette.length] },
+          itemStyle: { color: palette[ci % palette.length] },
+        };
+      });
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "Income Growth by Country", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: { trigger: "axis" },
+        grid: { ...grid, right: 110 },
+        xAxis: { type: "category", data: years, ...axisTick },
+        yAxis: { type: "value", name: "Income", nameTextStyle: { color: fg, fontFamily: "Inter" }, ...axisTick },
+        series: raceSeries,
+        legend: { show: false },
+        animationDuration: 4000,
       };
     }
 
@@ -935,31 +1029,125 @@ function buildEChartsOption(
 
 // ─── Chart Type Icon ──────────────────────────────────────────────────────────
 function ChartIcon({ type, color = "currentColor" }: { type: string; color?: string }) {
+  const c = color;
+  const dots = (pts: [number, number][], r = 1.2) => pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={r} fill={c} />);
   const map: Record<string, React.ReactNode> = {
-    bar: <path d="M3 20h18M5 20V10M9 20V6M13 20V13M17 20V4" stroke={color} strokeWidth="2" strokeLinecap="round" />,
-    line: <><path d="M3 17l4-8 4 4 4-6 4 4" stroke={color} strokeWidth="2" strokeLinecap="round" /><path d="M3 20h18" stroke={color} strokeWidth="2" /></>,
-    doughnut: <><circle cx="12" cy="12" r="9" stroke={color} strokeWidth="2" /><circle cx="12" cy="12" r="4" stroke={color} strokeWidth="2" /></>,
-    pie: <><path d="M12 2a10 10 0 1 0 10 10H12V2z" stroke={color} strokeWidth="2" /><path d="M12 2a10 10 0 0 1 10 10" stroke={color} strokeWidth="2" /></>,
-    radar: <><polygon points="12,3 21,8.5 21,15.5 12,21 3,15.5 3,8.5" stroke={color} strokeWidth="2" /><polygon points="12,7 17,10 17,14 12,17 7,14 7,10" stroke={color} strokeWidth="1.5" /></>,
-    area: <><path d="M3 17l4-6 4 3 4-5 4 3v5H3z" stroke={color} strokeWidth="2" strokeLinecap="round" /></>,
-    scatter: <><circle cx="5" cy="17" r="2" fill={color} /><circle cx="9" cy="11" r="2" fill={color} /><circle cx="15" cy="7" r="2" fill={color} /><circle cx="18" cy="14" r="2" fill={color} /></>,
-    polarArea: <><circle cx="12" cy="12" r="9" stroke={color} strokeWidth="2" /><line x1="12" y1="3" x2="12" y2="21" stroke={color} strokeWidth="1.5" /><line x1="3" y1="12" x2="21" y2="12" stroke={color} strokeWidth="1.5" /></>,
-    bubble: <><circle cx="7" cy="15" r="3" stroke={color} strokeWidth="2" /><circle cx="16" cy="8" r="4" stroke={color} strokeWidth="2" /><circle cx="14" cy="17" r="2" stroke={color} strokeWidth="2" /></>,
+    // ── LINE ──
+    "line-basic": <><path d="M3 17l4-8 4 4 4-6 4 4" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" /><circle cx="3" cy="17" r="1.3" fill={c} /><circle cx="19" cy="11" r="1.3" fill={c} /></>,
+    "line-area-stacked": <><path d="M3 19l4-4 4 2 4-3 4 2v5H3z" fill={c} opacity="0.55" /><path d="M3 14l4-6 4 3 4-5 4 3v9l-4-2-4 3-4-2-4 4z" fill={c} opacity="0.25" /><path d="M3 14l4-6 4 3 4-5 4 3" stroke={c} strokeWidth="1.6" strokeLinecap="round" fill="none" /></>,
+    "line-bump": <><path d="M4 5c4 3 4 9 16 14" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M20 5c-4 3-4 9-16 14" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.55" /></>,
+    "line-confidence": <><path d="M3 14c5-8 13-8 18 0" stroke={c} strokeWidth="6" strokeLinecap="round" opacity="0.22" fill="none" /><path d="M3 14c5-8 13-8 18 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
+    "line-step": <path d="M3 18h4v-4h4v-3h4v-5h4v3h2" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />,
+    "line-area-time": <><path d="M3 15c3-6 6-6 9-2s6-4 9 1v6H3z" fill={c} opacity="0.3" /><path d="M3 15c3-6 6-6 9-2s6-4 9 1" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
+    "line-multiple-x": <><path d="M3 4h18M3 20h18" stroke={c} strokeWidth="1.4" opacity="0.5" /><path d="M3 15l4-7 4 5 4-8 4 6" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
+    "line-rainfall": <><rect x="4" y="13" width="3" height="7" fill={c} opacity="0.45" /><rect x="9.5" y="9" width="3" height="11" fill={c} opacity="0.45" /><rect x="15" y="15" width="3" height="5" fill={c} opacity="0.45" /><path d="M3 10l5 3 5-6 5 4 3-3" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
+    "line-datazoom": <><path d="M3 13l4-6 4 4 4-5 4 3" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><rect x="3.5" y="18.5" width="17" height="3" rx="1.5" stroke={c} strokeWidth="1.4" fill="none" /><rect x="5.5" y="17.7" width="2" height="4.6" rx="1" fill={c} /><rect x="16.5" y="17.7" width="2" height="4.6" rx="1" fill={c} /></>,
+    "line-dynamic": <><path d="M3 15l4-5 4 3 4-6 4 4" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><circle cx="19" cy="11" r="4" stroke={c} strokeWidth="1.2" opacity="0.4" fill="none" /><circle cx="19" cy="11" r="2" fill={c} /></>,
+    "line-aqi": <><path d="M3 17c3 0 3-6 6-6" stroke="#10b981" strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M9 11c3 0 2 5 5 5" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M14 16c3 0 2-8 6-8" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" fill="none" /></>,
+    "large-scale-area": <><path d="M2 17l1-2 1 3 1-4 1 2 1-3 1 4 1-2 1 3 1-5 1 3 1-2 1 4 1-3 1 2 1-4 1 3v3H2z" fill={c} opacity="0.32" /><path d="M2 17l1-2 1 3 1-4 1 2 1-3 1 4 1-2 1 3 1-5 1 3 1-2 1 4 1-3 1 2 1-4 1 3" stroke={c} strokeWidth="1.1" strokeLinejoin="round" fill="none" /></>,
+    "area-rainfall": <><path d="M3 14c3-5 6-3 9-6s6 1 9-3v13H3z" fill={c} opacity="0.3" /><path d="M3 14c3-5 6-3 9-6s6 1 9-3" stroke={c} strokeWidth="1.6" fill="none" /><rect x="5" y="18" width="1.2" height="3" fill={c} opacity="0.6" /><rect x="10.5" y="16" width="1.2" height="5" fill={c} opacity="0.6" /><rect x="16" y="19" width="1.2" height="2" fill={c} opacity="0.6" /></>,
+    "line-race": <>
+      <path d="M3 19c6-2 12-4 17-13" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      <path d="M3 19c6-1 12-6 17-9" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" opacity="0.6" />
+      <path d="M3 19c6 0 12-2 17-4" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" opacity="0.35" />
+      <line x1="20" y1="6" x2="22" y2="6" stroke={c} strokeWidth="1.2" /><line x1="20" y1="10" x2="22" y2="10" stroke={c} strokeWidth="1.2" opacity="0.6" /><line x1="20" y1="15" x2="22" y2="15" stroke={c} strokeWidth="1.2" opacity="0.35" />
+    </>,
+    // ── BAR ──
+    "bar-basic": <path d="M3 20h18M5 20V10M9 20V6M13 20V13M17 20V4" stroke={c} strokeWidth="2" strokeLinecap="round" />,
+    "bar-background": <><rect x="6" y="4" width="5" height="16" rx="1" fill={c} opacity="0.15" /><rect x="6" y="11" width="5" height="9" rx="1" fill={c} /><rect x="14" y="4" width="5" height="16" rx="1" fill={c} opacity="0.15" /><rect x="14" y="8" width="5" height="12" rx="1" fill={c} /></>,
+    "bar-negative": <><line x1="12" y1="3" x2="12" y2="21" stroke={c} strokeWidth="1.4" opacity="0.5" /><rect x="12" y="5" width="7" height="3" rx="1" fill={c} /><rect x="6" y="10.5" width="6" height="3" rx="1" fill={c} opacity="0.55" /><rect x="12" y="16" width="4" height="3" rx="1" fill={c} /></>,
+    "bar-stacked": <><rect x="5" y="14" width="5" height="6" fill={c} /><rect x="5" y="8" width="5" height="6" fill={c} opacity="0.5" /><rect x="14" y="17" width="5" height="3" fill={c} /><rect x="14" y="11" width="5" height="6" fill={c} opacity="0.5" /><rect x="14" y="5" width="5" height="6" fill={c} opacity="0.25" /></>,
+    "bar-stacked-norm": <>
+      <rect x="4" y="4" width="4" height="16" fill={c} opacity="0.22" /><rect x="4" y="12" width="4" height="8" fill={c} opacity="0.55" /><rect x="4" y="16" width="4" height="4" fill={c} />
+      <rect x="10" y="4" width="4" height="16" fill={c} opacity="0.22" /><rect x="10" y="8" width="4" height="12" fill={c} opacity="0.55" /><rect x="10" y="14" width="4" height="6" fill={c} />
+      <rect x="16" y="4" width="4" height="16" fill={c} opacity="0.22" /><rect x="16" y="6" width="4" height="14" fill={c} opacity="0.55" /><rect x="16" y="10" width="4" height="10" fill={c} />
+    </>,
+    "bar-horizontal": <><path d="M3 4v18h18" stroke={c} strokeWidth="1.4" fill="none" opacity="0.5" /><rect x="4" y="6" width="14" height="3" rx="1" fill={c} /><rect x="4" y="11" width="9" height="3" rx="1" fill={c} opacity="0.7" /><rect x="4" y="16" width="12" height="3" rx="1" fill={c} opacity="0.5" /></>,
+    "bar-mixed": <><rect x="4" y="13" width="3" height="7" fill={c} opacity="0.45" /><rect x="9.5" y="9" width="3" height="11" fill={c} opacity="0.45" /><rect x="15" y="15" width="3" height="5" fill={c} opacity="0.45" /><path d="M3 8l5 4 5-7 5 3 3-2" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
+    "bar-waterfall": <><rect x="3" y="4" width="3" height="6" fill={c} /><rect x="8.5" y="10" width="3" height="4" fill={c} opacity="0.55" /><rect x="14" y="8" width="3" height="5" fill={c} opacity="0.55" /><rect x="19.5" y="6" width="2.5" height="10" fill={c} /><line x1="2" y1="20" x2="22" y2="20" stroke={c} strokeWidth="1.2" opacity="0.5" /></>,
+    "bar-race": <><rect x="3" y="5" width="16" height="3" rx="1" fill={c} /><rect x="3" y="10.5" width="11" height="3" rx="1" fill={c} opacity="0.65" /><rect x="3" y="16" width="7" height="3" rx="1" fill={c} opacity="0.4" /><path d="M20 4.5l2.2 2-2.2 2" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" /></>,
+    "bar-world-pop": <><rect x="3" y="5" width="13" height="3" rx="1.5" fill={c} /><rect x="3" y="10.5" width="17" height="3" rx="1.5" fill={c} opacity="0.7" /><rect x="3" y="16" width="9" height="3" rx="1.5" fill={c} opacity="0.45" /></>,
+    "bar-animation": <><path d="M4 5c2 2.2 4 2.2 6 0" stroke={c} strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.6" /><rect x="5" y="10" width="4" height="10" rx="1" fill={c} /><rect x="11" y="6" width="4" height="14" rx="1" fill={c} opacity="0.7" /><rect x="17" y="13" width="4" height="7" rx="1" fill={c} opacity="0.45" /></>,
+    "bar-brush": <><rect x="4" y="10" width="3" height="10" fill={c} opacity="0.35" /><rect x="9.5" y="6" width="3" height="14" fill={c} /><rect x="15" y="12" width="3" height="8" fill={c} /><rect x="20.5" y="8" width="2" height="12" fill={c} opacity="0.35" /><rect x="7.5" y="3" width="12" height="14" rx="1" stroke={c} strokeWidth="1.2" strokeDasharray="2 2" fill="none" /></>,
+    // ── PIE ──
+    "pie-basic": <><path d="M12 2a10 10 0 1 0 10 10H12V2z" stroke={c} strokeWidth="2" fill="none" /><path d="M12 2a10 10 0 0 1 10 10" stroke={c} strokeWidth="2" fill="none" /></>,
+    "pie-doughnut": <><circle cx="12" cy="12" r="9" stroke={c} strokeWidth="2" fill="none" /><circle cx="12" cy="12" r="4" stroke={c} strokeWidth="2" fill="none" /></>,
+    "pie-half": <><path d="M3 14a9 9 0 0 1 18 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M7 14a5 5 0 0 1 10 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
+    "pie-rose": <path d="M21 12L15.5 15.5L12 21L8.5 15.5L3 12L8.5 8.5L12 3L15.5 8.5Z" fill={c} opacity="0.7" stroke={c} strokeWidth="1" strokeLinejoin="round" />,
+    "pie-scrollable": <><circle cx="9" cy="12" r="7" stroke={c} strokeWidth="2" fill="none" /><path d="M9 5a7 7 0 0 1 6 10.5" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><circle cx="19" cy="7" r="1" fill={c} /><circle cx="19" cy="12" r="1" fill={c} /><circle cx="19" cy="17" r="1" fill={c} /></>,
+    "pie-label-adjust": <><circle cx="10" cy="12" r="7" stroke={c} strokeWidth="2" fill="none" /><path d="M10 5a7 7 0 0 1 4 12.9" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M16 18l3 1M16.5 6l3-1M4 9l-3-1" stroke={c} strokeWidth="1.1" strokeLinecap="round" opacity="0.6" /></>,
+    "pie-referer": <><circle cx="12" cy="12" r="9" stroke={c} strokeWidth="1.6" fill="none" opacity="0.5" /><circle cx="12" cy="12" r="5.2" stroke={c} strokeWidth="1.6" fill="none" opacity="0.5" /><path d="M12 3a9 9 0 0 1 7.8 4.5" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" /><path d="M12 6.8a5.2 5.2 0 0 1 4.3 2.4" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" /></>,
+    // ── SCATTER ──
+    "scatter-basic": <>{dots([[5, 17], [10, 8], [15, 13], [19, 6]], 1.6)}</>,
+    "scatter-bubble": <><circle cx="6" cy="17" r="2" fill={c} opacity="0.7" /><circle cx="13" cy="9" r="4.5" fill={c} opacity="0.45" /><circle cx="18" cy="15" r="3" fill={c} opacity="0.6" /></>,
+    "scatter-distribution": <>{dots([[8, 10], [11, 8], [13, 11], [9, 13], [15, 9], [12, 14], [16, 12], [10, 16], [14, 16], [12.5, 11.5]], 1.15)}</>,
+    "scatter-single": <>
+      <line x1="3" y1="7" x2="21" y2="7" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="3" y1="12.5" x2="21" y2="12.5" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="3" y1="18" x2="21" y2="18" stroke={c} strokeWidth="1" opacity="0.3" />
+      {dots([[6, 7], [11, 7], [9, 12.5], [15, 12.5], [18, 12.5], [13, 18], [17, 18]], 1.2)}
+    </>,
+    // ── CANDLESTICK ──
+    "candle-basic": <><rect x="4" y="6" width="4" height="10" stroke={c} strokeWidth="1.5" fill="none" /><line x1="6" y1="3" x2="6" y2="6" stroke={c} strokeWidth="1.5" /><line x1="6" y1="16" x2="6" y2="20" stroke={c} strokeWidth="1.5" /><rect x="14" y="9" width="4" height="8" stroke={c} strokeWidth="1.5" fill="none" /><line x1="16" y1="4" x2="16" y2="9" stroke={c} strokeWidth="1.5" /><line x1="16" y1="17" x2="16" y2="21" stroke={c} strokeWidth="1.5" /></>,
+    "candle-large": <>
+      <rect x="3" y="8" width="2.4" height="6" fill={c} /><line x1="4.2" y1="5" x2="4.2" y2="8" stroke={c} strokeWidth="1.1" /><line x1="4.2" y1="14" x2="4.2" y2="17" stroke={c} strokeWidth="1.1" />
+      <rect x="7.3" y="5" width="2.4" height="8" fill={c} opacity="0.55" /><line x1="8.5" y1="3" x2="8.5" y2="5" stroke={c} strokeWidth="1.1" /><line x1="8.5" y1="13" x2="8.5" y2="16" stroke={c} strokeWidth="1.1" />
+      <rect x="11.6" y="10" width="2.4" height="5" fill={c} /><line x1="12.8" y1="7" x2="12.8" y2="10" stroke={c} strokeWidth="1.1" /><line x1="12.8" y1="15" x2="12.8" y2="18" stroke={c} strokeWidth="1.1" />
+      <rect x="15.9" y="6" width="2.4" height="9" fill={c} opacity="0.55" /><line x1="17.1" y1="3" x2="17.1" y2="6" stroke={c} strokeWidth="1.1" /><line x1="17.1" y1="15" x2="17.1" y2="19" stroke={c} strokeWidth="1.1" />
+      <rect x="20.2" y="9" width="2" height="5" fill={c} />
+    </>,
+    // ── RADAR ──
+    "radar-basic": <><polygon points="12,3 21,8.5 21,15.5 12,21 3,15.5 3,8.5" stroke={c} strokeWidth="2" fill="none" /><polygon points="12,7 17,10 17,14 12,17 7,14 7,10" stroke={c} strokeWidth="1.5" fill="none" /></>,
+    "radar-browsers": <><polygon points="12,4 20,9 20,16 12,21 4,16 4,9" stroke={c} strokeWidth="1.8" fill={c} fillOpacity="0.15" /></>,
+    // ── HEATMAP ──
+    "heat-cartesian": <><rect x="3" y="3" width="4" height="4" rx="0.5" fill={c} opacity="0.4" /><rect x="10" y="3" width="4" height="4" rx="0.5" fill={c} opacity="0.7" /><rect x="17" y="3" width="4" height="4" rx="0.5" fill={c} opacity="1" /><rect x="3" y="10" width="4" height="4" rx="0.5" fill={c} opacity="0.6" /><rect x="10" y="10" width="4" height="4" rx="0.5" fill={c} opacity="0.9" /><rect x="17" y="10" width="4" height="4" rx="0.5" fill={c} opacity="0.3" /><rect x="3" y="17" width="4" height="4" rx="0.5" fill={c} opacity="0.8" /><rect x="10" y="17" width="4" height="4" rx="0.5" fill={c} opacity="0.35" /><rect x="17" y="17" width="4" height="4" rx="0.5" fill={c} opacity="0.65" /></>,
+    "heat-calendar": <>
+      {[0.15, 0.4, 0.7, 0.3, 0.55, 0.85, 0.2].map((o, i) => <rect key={"a" + i} x={3 + i * 2.7} y="4" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+      {[0.5, 0.2, 0.9, 0.4, 0.65, 0.3, 0.75].map((o, i) => <rect key={"b" + i} x={3 + i * 2.7} y="8" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+      {[0.35, 0.8, 0.25, 0.6, 0.15, 0.9, 0.45].map((o, i) => <rect key={"c" + i} x={3 + i * 2.7} y="12" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+      {[0.6, 0.3, 0.5, 0.85, 0.2, 0.4, 0.7].map((o, i) => <rect key={"d" + i} x={3 + i * 2.7} y="16" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+    </>,
+    // ── GAUGE ──
+    "gauge-simple": <><path d="M4 15a8 8 0 1 1 16 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M12 15l-3-5" stroke={c} strokeWidth="2" strokeLinecap="round" /></>,
+    "gauge-speed": <>
+      <path d="M4 16a8 8 0 1 1 16 0" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" />
+      {[0, 1, 2, 3, 4, 5, 6].map(i => {
+        const ang = Math.PI * (1 - i / 6); const x1 = 12 + 8.5 * Math.cos(ang), y1 = 16 - 8.5 * Math.sin(ang), x2 = 12 + 6.5 * Math.cos(ang), y2 = 16 - 6.5 * Math.sin(ang);
+        return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={c} strokeWidth="1.2" opacity="0.6" />;
+      })}
+      <path d="M12 16l-2.5-5.5" stroke={c} strokeWidth="2" strokeLinecap="round" />
+    </>,
+    "gauge-progress": <><circle cx="12" cy="12" r="8" stroke={c} strokeWidth="3" opacity="0.18" fill="none" /><path d="M12 4a8 8 0 0 1 5.6 13.6" stroke={c} strokeWidth="3" strokeLinecap="round" fill="none" /></>,
+    // ── TREE / GRAPH ──
+    "tree-lr": <>
+      <path d="M4 12h4M8 12L12 6M8 12L12 12M8 12L12 18M12 6h4M12 6L20 4M12 6L20 8M12 18h4M12 18L20 16M12 18L20 20" stroke={c} strokeWidth="1.2" fill="none" opacity="0.6" />
+      <circle cx="4" cy="12" r="1.6" fill={c} /><circle cx="12" cy="6" r="1.4" fill={c} /><circle cx="12" cy="12" r="1.4" fill={c} /><circle cx="12" cy="18" r="1.4" fill={c} />
+      <circle cx="20" cy="4" r="1.1" fill={c} opacity="0.7" /><circle cx="20" cy="8" r="1.1" fill={c} opacity="0.7" /><circle cx="20" cy="16" r="1.1" fill={c} opacity="0.7" /><circle cx="20" cy="20" r="1.1" fill={c} opacity="0.7" />
+    </>,
+    "treemap-basic": <><rect x="3" y="3" width="10" height="8" fill={c} opacity="0.7" /><rect x="14" y="3" width="7" height="5" fill={c} opacity="0.4" /><rect x="14" y="9" width="7" height="6" fill={c} opacity="0.6" /><rect x="3" y="12" width="6" height="9" fill={c} opacity="0.3" /><rect x="10" y="12" width="11" height="9" fill={c} opacity="0.5" /></>,
+    "treemap-sunburst": <><circle cx="12" cy="12" r="9" stroke={c} strokeWidth="1.4" opacity="0.45" fill="none" /><circle cx="12" cy="12" r="3.5" fill={c} opacity="0.8" /><path d="M12 12L12 3M12 12L19.8 8M12 12L20.5 15M12 12L14 20.8M12 12L6 19M12 12L3.5 10" stroke={c} strokeWidth="1.1" opacity="0.5" /></>,
+    "sankey-basic": <>
+      <rect x="3" y="4" width="2.4" height="6" fill={c} /><rect x="3" y="14" width="2.4" height="6" fill={c} opacity="0.6" />
+      <rect x="18.6" y="3" width="2.4" height="5" fill={c} opacity="0.7" /><rect x="18.6" y="10" width="2.4" height="5" fill={c} /><rect x="18.6" y="17" width="2.4" height="4" fill={c} opacity="0.5" />
+      <path d="M5.4 6c5 0 8-1 13-1.5M5.4 8c5 2 8 4 13 5M5.4 16c5 0 8-3 13-6.5M5.4 18c5 0 8 4 13 6" stroke={c} strokeWidth="1.2" opacity="0.35" fill="none" />
+    </>,
+    "sankey-gradient": <>
+      <rect x="3" y="3" width="2.4" height="5" fill={c} opacity="0.8" /><rect x="3" y="10" width="2.4" height="4" fill={c} opacity="0.6" /><rect x="3" y="16" width="2.4" height="5" fill={c} opacity="0.4" />
+      <rect x="18.6" y="4" width="2.4" height="4" fill={c} opacity="0.7" /><rect x="18.6" y="10" width="2.4" height="4" fill={c} /><rect x="18.6" y="16" width="2.4" height="5" fill={c} opacity="0.5" />
+      <path d="M5.4 5.5c5 1 8 2 13 3M5.4 12c5 0 8-1 13-3M5.4 18c5 0 8 0 13-2" stroke={c} strokeWidth="1.4" opacity="0.5" fill="none" />
+    </>,
+    "funnel-basic": <path d="M4 4h16M6 9h12M8 14h8M10 19h4" stroke={c} strokeWidth="2" strokeLinecap="round" />,
+    // ── SPECIAL ──
+    "pictorial-bar": <>
+      <rect x="4" y="15" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="7.2" y="15" width="2.2" height="2.2" rx="0.5" fill={c} />
+      <rect x="4" y="10" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="7.2" y="10" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="10.4" y="10" width="2.2" height="2.2" rx="0.5" fill={c} />
+      <rect x="4" y="5" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="7.2" y="5" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="10.4" y="5" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="13.6" y="5" width="2.2" height="2.2" rx="0.5" fill={c} />
+    </>,
+    "share-dataset": <>
+      <rect x="4" y="3" width="3" height="6" fill={c} opacity="0.6" /><rect x="9" y="1" width="3" height="8" fill={c} opacity="0.6" /><rect x="14" y="4" width="3" height="5" fill={c} opacity="0.6" />
+      <line x1="2" y1="11.5" x2="22" y2="11.5" stroke={c} strokeWidth="1" strokeDasharray="1.5 1.5" opacity="0.5" />
+      <path d="M4 19l4-3 4 2 4-4 4 2" stroke={c} strokeWidth="1.6" strokeLinecap="round" fill="none" />
+    </>,
   };
-  const getFallback = (id: string) => {
-    if (id.startsWith("line")) return map.line;
-    if (id.startsWith("bar")) return map.bar;
-    if (id.startsWith("pie")) return map.pie;
-    if (id.startsWith("scatter")) return map.scatter;
-    if (id.startsWith("radar")) return map.radar;
-    if (id.startsWith("candle")) return <><rect x="4" y="6" width="4" height="10" stroke={color} strokeWidth="1.5" /><line x1="6" y1="3" x2="6" y2="6" stroke={color} strokeWidth="1.5" /><line x1="6" y1="16" x2="6" y2="20" stroke={color} strokeWidth="1.5" /><rect x="14" y="9" width="4" height="8" stroke={color} strokeWidth="1.5" /><line x1="16" y1="4" x2="16" y2="9" stroke={color} strokeWidth="1.5" /><line x1="16" y1="17" x2="16" y2="21" stroke={color} strokeWidth="1.5" /></>;
-    if (id.startsWith("heat")) return <><rect x="3" y="3" width="4" height="4" rx="0.5" fill={color} opacity="0.4" /><rect x="10" y="3" width="4" height="4" rx="0.5" fill={color} opacity="0.7" /><rect x="17" y="3" width="4" height="4" rx="0.5" fill={color} opacity="1" /><rect x="3" y="10" width="4" height="4" rx="0.5" fill={color} opacity="0.6" /><rect x="10" y="10" width="4" height="4" rx="0.5" fill={color} opacity="0.9" /><rect x="17" y="10" width="4" height="4" rx="0.5" fill={color} opacity="0.3" /></>;
-    if (id.startsWith("gauge")) return <><path d="M4 15a8 8 0 1 1 16 0" stroke={color} strokeWidth="2" strokeLinecap="round" /><path d="M12 15l-3-5" stroke={color} strokeWidth="2" strokeLinecap="round" /></>;
-    if (id.startsWith("tree") || id.startsWith("sankey")) return <><rect x="10" y="3" width="4" height="4" rx="1" fill={color} opacity="0.8" /><rect x="3" y="14" width="4" height="4" rx="1" fill={color} opacity="0.8" /><rect x="17" y="14" width="4" height="4" rx="1" fill={color} opacity="0.8" /><line x1="12" y1="7" x2="5" y2="14" stroke={color} strokeWidth="1.5" /><line x1="12" y1="7" x2="19" y2="14" stroke={color} strokeWidth="1.5" /></>;
-    if (id.startsWith("funnel")) return <path d="M4 4h16M6 9h12M8 14h8M10 19h4" stroke={color} strokeWidth="2" strokeLinecap="round" />;
-    return map.bar;
-  };
-  return <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">{map[type] ?? getFallback(type)}</svg>;
+  return <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">{map[type] ?? map["bar-basic"]}</svg>;
 }
 
 // ─── ECharts Mount Hook ───────────────────────────────────────────────────────
@@ -1269,9 +1457,36 @@ export default function App() {
 
             {/* Data Input */}
             <Section title="Data Input" id="data" collapsed={collapsed.has("data")} onToggle={toggleSection} isDark={isDark}>
+              {STATIC_DEMO_CHARTS.has(chartType) ? (
+                <div style={{ display: "flex", gap: 8, padding: 10, borderRadius: 8, background: isDark ? "#1a1a2e" : "#F3F4F6", color: subText, fontSize: 11.5, lineHeight: 1.5 }}>
+                  <Info size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>이 차트는 프리셋 데모 데이터를 사용해요. Data Input을 수정해도 차트에는 반영되지 않아요.</span>
+                </div>
+              ) : SINGLE_VALUE_CHARTS.has(chartType) ? (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: subText, marginBottom: 8 }}>Value</div>
+                  <input type="number" value={datasets[0]?.data[0] ?? ""} onChange={e => { const n = parseFloat(e.target.value); setDatasets(p => p.map((d, i) => i !== 0 ? d : { ...d, data: d.data.length ? d.data.map((v, j) => j === 0 ? (isNaN(n) ? v : n) : v) : [isNaN(n) ? 0 : n] })); }}
+                    style={{ width: "100%", height: 32, padding: "0 8px", borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, outline: "none", background: inputBg, color: sectionText, fontFamily: "Inter" }} />
+                </div>
+              ) : MULTI_SINGLE_VALUE_CHARTS.has(chartType) ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {datasets.map((ds, di) => (
+                    <div key={ds.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: effectivePalette[di % effectivePalette.length], flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, color: subText, flex: 1 }}>{ds.name}</span>
+                      <input type="number" value={ds.data[0] ?? ""} onChange={e => { const n = parseFloat(e.target.value); setDatasets(p => p.map(d => d.id !== ds.id ? d : { ...d, data: d.data.length ? d.data.map((v, j) => j === 0 ? (isNaN(n) ? v : n) : v) : [isNaN(n) ? 0 : n] })); }}
+                        style={{ width: 72, height: 30, padding: "0 8px", borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, outline: "none", background: inputBg, color: sectionText, fontFamily: "Inter" }} />
+                      {di > 0 && <button onClick={() => setDatasets(p => p.filter(d => d.id !== ds.id))} style={{ background: "none", border: "none", cursor: "pointer", color: subText, display: "flex", flexShrink: 0 }}><X size={12} /></button>}
+                    </div>
+                  ))}
+                  <button onClick={addDataset} style={{ height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: inputBg, color: subText }}>
+                    <Plus size={12} />+ Dataset
+                  </button>
+                </div>
+              ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: subText, marginBottom: 8 }}>X-Axis Labels</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: subText, marginBottom: 8 }}>{Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "Y-Axis Labels" : "X-Axis Labels"}</div>
                   <div style={{ borderRadius: 8, border: `1px solid ${inputBorder}`, padding: 8, display: "flex", flexWrap: "wrap", gap: 6, background: inputBg }}>
                     {labels.map((l, i) => (
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 11, color: sectionText, background: isDark ? "#0F0F1A" : "#fff" }}>
@@ -1284,11 +1499,11 @@ export default function App() {
                       placeholder="Add..." style={{ background: "transparent", border: "none", outline: "none", fontSize: 11, color: sectionText, width: 50, fontFamily: "Inter" }} />
                   </div>
                 </div>
-                {datasets.map((ds, di) => (
+                {(FIRST_DATASET_ONLY_CHARTS.has(chartType) ? datasets.slice(0, 1) : datasets).map((ds, di) => (
                   <div key={ds.id}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                       <div style={{ width: 10, height: 10, borderRadius: "50%", background: effectivePalette[di % effectivePalette.length] }} />
-                      <span style={{ fontSize: 12, fontWeight: 500, color: subText, flex: 1 }}>{di === 0 ? "Y-Axis Values" : ds.name}</span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: subText, flex: 1 }}>{di === 0 ? (Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "X-Axis Values" : "Y-Axis Values") : ds.name}</span>
                       {di > 0 && <button onClick={() => setDatasets(p => p.filter(d => d.id !== ds.id))} style={{ background: "none", border: "none", cursor: "pointer", color: subText, display: "flex" }}><X size={12} /></button>}
                     </div>
                     {labels.map((l, li) => (
@@ -1305,11 +1520,14 @@ export default function App() {
                   <button onClick={randomizeData} style={{ flex: 1, height: 32, borderRadius: 6, border: "none", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: isDark ? "#2D2B5C" : "#EEF2FF", color: "#6366F1" }}>
                     <Shuffle size={12} />Random Data
                   </button>
-                  <button onClick={addDataset} style={{ flex: 1, height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: inputBg, color: subText }}>
-                    <Plus size={12} />+ Dataset
-                  </button>
+                  {!FIRST_DATASET_ONLY_CHARTS.has(chartType) && (
+                    <button onClick={addDataset} style={{ flex: 1, height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: inputBg, color: subText }}>
+                      <Plus size={12} />+ Dataset
+                    </button>
+                  )}
                 </div>
               </div>
+              )}
             </Section>
 
             {/* Style Settings */}
