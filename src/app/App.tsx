@@ -30,7 +30,29 @@ function generatePalette(hex: string): string[] {
   } catch { return ["#6366f1", "#f59e0b", "#10b981", "#ef4444", "#06b6d4", "#8b5cf6", "#f97316"]; }
 }
 const isValidHex = (h: string) => /^#[0-9A-Fa-f]{6}$/.test(h);
-const rand = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
+const baseRand = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+// Deterministic PRNG (mulberry32) seeded from a chart id — so a "static demo" chart's fake
+// data stays put across re-renders that shouldn't change it (theme toggle, resize, SVG
+// export re-invoking buildEChartsOption), instead of reshuffling on every call.
+function mulberry32(seed: number) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashSeed(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function createSeededRand(key: string) {
+  const random = mulberry32(hashSeed(key));
+  const rand = (a: number, b: number) => Math.floor(random() * (b - a + 1)) + a;
+  return { random, rand };
+}
 
 // ─── Size Presets ─────────────────────────────────────────────────────────────
 const SIZE_PRESETS: Record<SizePreset, { w: number; h: number }> = {
@@ -110,12 +132,14 @@ export const ECHARTS_CATALOGUE = [
     cat: "Radar", items: [
       { id: "radar-basic", label: "Basic Radar" },
       { id: "radar-browsers", label: "Browsers" },
+      { id: "radar-aqi", label: "AQI Radar" },
     ],
   },
   {
     cat: "Heatmap", items: [
       { id: "heat-cartesian", label: "Cartesian" },
       { id: "heat-calendar", label: "Calendar" },
+      { id: "heat-large", label: "Large Data (10K)" },
     ],
   },
   {
@@ -133,6 +157,9 @@ export const ECHARTS_CATALOGUE = [
       { id: "sankey-basic", label: "Sankey" },
       { id: "sankey-gradient", label: "Sankey Gradient" },
       { id: "funnel-basic", label: "Funnel" },
+      { id: "graph-les-mis", label: "Force Graph" },
+      { id: "graph-hide-overlap", label: "Hide Overlapped Label" },
+      { id: "graph-gradient-edge", label: "Gradient Edge" },
     ],
   },
   {
@@ -154,6 +181,7 @@ const STATIC_DEMO_CHARTS = new Set([
   "tree-lr", "treemap-sunburst", "sankey-basic", "sankey-gradient",
   "scatter-distribution", "scatter-single", "scatter-jitter",
   "large-scale-area", "area-rainfall", "line-race",
+  "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
 ]);
 // Chart types that only ever read datasets[0] — extra datasets are silently ignored
 const FIRST_DATASET_ONLY_CHARTS = new Set([
@@ -178,7 +206,7 @@ function genDates(count: number, startYear = 2024) {
   return dates;
 }
 
-function genOHLC(count: number) {
+function genOHLC(count: number, rand: (a: number, b: number) => number = baseRand) {
   const data: [string, number, number, number, number][] = [];
   let price = 100;
   const start = new Date(2024, 0, 1);
@@ -193,6 +221,25 @@ function genOHLC(count: number) {
   return data;
 }
 
+// A small hub-and-spoke network with a bit of random extra wiring — reused across the
+// force-layout graph demos (Les Miserables / Hide Overlapped Label / Gradient Edge)
+// instead of fetching the official examples' external les-miserables.json dataset.
+function genGraphData(n = 40, rand: (a: number, b: number) => number = baseRand, random: () => number = Math.random) {
+  const categoryNames = ["Core", "Support", "Fringe"];
+  const nodes = Array.from({ length: n }, (_, i) => {
+    const isHub = i < 3;
+    const category = isHub ? i : rand(0, 2);
+    const symbolSize = isHub ? rand(34, 48) : rand(8, 22);
+    return { id: String(i), name: `Node ${i}`, symbolSize, category, value: symbolSize };
+  });
+  const links: { source: string; target: string }[] = [];
+  for (let i = 3; i < n; i++) {
+    links.push({ source: String(i), target: String(rand(0, 2)) });
+    if (random() < 0.3) links.push({ source: String(i), target: String(rand(3, n - 1)) });
+  }
+  return { nodes, links, categories: categoryNames.map(name => ({ name })) };
+}
+
 // ─── ECharts Option Builder ───────────────────────────────────────────────────
 function buildEChartsOption(
   chartId: string,
@@ -205,6 +252,15 @@ function buildEChartsOption(
   autoResponsive: boolean,
   smoothLine: boolean,
 ): echarts.EChartsOption {
+  // Static-demo charts ignore Data Input and fabricate their own numbers — but this
+  // function gets re-invoked on every theme toggle, resize, and SVG export, so without a
+  // fixed seed those charts would silently reshuffle on unrelated interactions and could
+  // render different data on screen vs. in an exported SVG (which rebuilds the option).
+  const isStaticDemo = STATIC_DEMO_CHARTS.has(chartId);
+  const seeded = isStaticDemo ? createSeededRand(chartId) : null;
+  const rand = seeded ? seeded.rand : baseRand;
+  const random = seeded ? seeded.random : Math.random;
+
   const bg = theme === "dark" ? "#1E1E2E" : "#ffffff";
   const fg = theme === "dark" ? "#d1d5db" : "#374151";
   const axisC = theme === "dark" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.07)";
@@ -430,7 +486,7 @@ function buildEChartsOption(
       const rdates = Array.from({ length: hours }, (_, i) => { const d = new Date(2024, 5, 1); d.setHours(d.getHours() + i); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`; });
       let flow = 0.6;
       const flowData = rdates.map(() => { flow = Math.max(0.2, flow + rand(-10, 10) / 100); return +flow.toFixed(2); });
-      const rainData = rdates.map(() => (Math.random() < 0.12 ? +(Math.random() * 3).toFixed(2) : 0));
+      const rainData = rdates.map(() => (random() < 0.12 ? +(random() * 3).toFixed(2) : 0));
       return {
         backgroundColor: bg, title: titleCfg || { text: "Rainfall and Flow Relationship", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         // extra bottom room stacks: xAxis labels, then legend, then the dataZoom slider
@@ -948,7 +1004,7 @@ function buildEChartsOption(
     case "candle-basic":
     case "candle-large": {
       const count = chartId === "candle-large" ? 120 : 40;
-      const ohlc = genOHLC(count);
+      const ohlc = genOHLC(count, rand);
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
@@ -990,6 +1046,32 @@ function buildEChartsOption(
       };
     }
 
+    case "radar-aqi": {
+      // Each city's series holds many daily readings (one radar polygon per day) instead
+      // of a single shape — the overlapping translucent polygons show a month's variation
+      // at a glance, matching the official "AQI - Radar" technique.
+      const indicators = [{ name: "AQI", max: 300 }, { name: "PM2.5", max: 250 }, { name: "PM10", max: 300 }, { name: "CO", max: 5 }, { name: "NO2", max: 200 }, { name: "SO2", max: 100 }];
+      const cities = ["Beijing", "Shanghai", "Guangzhou"];
+      const genMonth = () => Array.from({ length: 24 }, () => [rand(20, 260), rand(5, 220), rand(20, 280), +(rand(3, 48) / 10).toFixed(1), rand(10, 120), rand(5, 70)]);
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "AQI by City", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: {},
+        legend: { bottom: 4, left: "center", data: cities, itemGap: 20, textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 }, selectedMode: "single" },
+        radar: {
+          indicator: indicators, shape: "circle", splitNumber: 5,
+          axisName: { color: fg, fontFamily: "Inter", fontSize: 11 },
+          splitLine: { lineStyle: { color: axisC } }, splitArea: { show: false }, axisLine: { lineStyle: { color: axisC } },
+        },
+        series: cities.map((city, i) => ({
+          name: city, type: "radar" as const, symbol: "none",
+          lineStyle: { width: 1, opacity: 0.5, color: palette[i % palette.length] },
+          itemStyle: { color: palette[i % palette.length] },
+          areaStyle: { opacity: 0.06 },
+          data: genMonth().map(value => ({ value })),
+        })),
+      };
+    }
+
     // ── HEATMAP ───────────────────────────────────────────────────────────
     case "heat-cartesian": {
       const days2 = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1021,6 +1103,34 @@ function buildEChartsOption(
         visualMap: { show: true, min: 0, max: 1000, calculable: true, orient: "horizontal", left: "center", bottom: 16, inRange: { color: [palette[0] + "20", palette[0]] }, textStyle: { color: fg } },
         calendar: { top: title ? 64 : 48, left: 32, right: 16, cellSize: ["auto", 14], range: year, itemStyle: { borderWidth: 1, borderColor: bg }, yearLabel: { show: false }, monthLabel: { color: fg, fontFamily: "Inter", fontSize: 11 }, dayLabel: { color: fg, fontFamily: "Inter", fontSize: 10 } },
         series: [{ type: "heatmap", coordinateSystem: "calendar", data: calData }],
+        legend: { show: false },
+      };
+    }
+
+    case "heat-large": {
+      // ~10,000 cells generated from a few summed sine waves (a cheap stand-in for the
+      // official example's Perlin noise) so the field reads as organic blobs rather than
+      // pure static, while staying within this app's plain rand()-based generator style.
+      const W = 100, H = 100;
+      const hlData: number[][] = [];
+      for (let i = 0; i <= W; i++) {
+        for (let j = 0; j <= H; j++) {
+          const v = Math.sin(i / 14) * Math.cos(j / 11) + Math.sin(i / 7 + j / 9) * 0.4 + rand(-8, 8) / 100;
+          hlData.push([i, j, +Math.max(0, Math.min(1, (v + 1.4) / 2.8)).toFixed(2)]);
+        }
+      }
+      return {
+        backgroundColor: bg, title: titleCfg || { text: "Heatmap — 10K Cells", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: {},
+        grid: { ...gridFull, bottom: 40 },
+        xAxis: { type: "category", data: Array.from({ length: W + 1 }, (_, i) => i), show: false },
+        yAxis: { type: "category", data: Array.from({ length: H + 1 }, (_, i) => i), show: false },
+        visualMap: {
+          min: 0, max: 1, calculable: true, realtime: false, orient: "horizontal", left: "center", bottom: 4,
+          textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
+          inRange: { color: ["#313695", "#4575b4", "#74add1", "#abd9e9", "#e0f3f8", "#ffffbf", "#fee090", "#fdae61", "#f46d43", "#d73027", "#a50026"] },
+        },
+        series: [{ name: "Field", type: "heatmap", data: hlData, progressive: 1000, animation: false }],
         legend: { show: false },
       };
     }
@@ -1178,6 +1288,68 @@ function buildEChartsOption(
       };
     }
 
+    case "graph-les-mis": {
+      const { nodes, links, categories } = genGraphData(40, rand, random);
+      const styledNodes = nodes.map(n => ({ ...n, label: { show: n.symbolSize > 30 } }));
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "Character Network", subtext: "Force Layout", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: {},
+        legend: { bottom: 4, left: "center", data: categories.map(c => c.name), textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 } },
+        animationDuration: 1200, animationEasingUpdate: "quinticInOut",
+        series: [{
+          name: "Network", type: "graph", layout: "force",
+          force: { repulsion: 120, edgeLength: 60 },
+          data: styledNodes, links, categories, roam: true, legendHoverLink: false,
+          label: { position: "right", formatter: "{b}", color: fg, fontFamily: "Inter", fontSize: 10 },
+          lineStyle: { color: "source", curveness: 0.25, opacity: 0.5 },
+          emphasis: { focus: "adjacency", lineStyle: { width: 6 } },
+        }],
+      };
+    }
+
+    case "graph-hide-overlap": {
+      const { nodes, links, categories } = genGraphData(60, rand, random);
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "Hide Overlapped Label", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: {},
+        legend: { bottom: 4, left: "center", data: categories.map(c => c.name), textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 } },
+        series: [{
+          name: "Network", type: "graph", layout: "force",
+          force: { repulsion: 70, edgeLength: 36 },
+          data: nodes, links, categories, roam: true,
+          label: { show: true, position: "right", formatter: "{b}", color: fg, fontFamily: "Inter", fontSize: 10 },
+          labelLayout: { hideOverlap: true },
+          scaleLimit: { min: 0.4, max: 2 },
+          lineStyle: { color: "source", curveness: 0.3, opacity: 0.35 },
+        }],
+      };
+    }
+
+    case "graph-gradient-edge": {
+      const { nodes, links, categories } = genGraphData(40, rand, random);
+      const catColor = categories.map((_, i) => palette[i % palette.length]);
+      const nodeCat = new Map(nodes.map(n => [n.id, n.category]));
+      const styledLinks = links.map(l => ({
+        ...l,
+        lineStyle: {
+          width: 2, curveness: 0.2,
+          color: { type: "linear" as const, x: 0, y: 0, x2: 1, y2: 1, colorStops: [{ offset: 0, color: catColor[nodeCat.get(l.source) ?? 0] }, { offset: 1, color: catColor[nodeCat.get(l.target) ?? 0] }] },
+        },
+      }));
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "Gradient Edge", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: {},
+        legend: { bottom: 4, left: "center", data: categories.map(c => c.name), textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 } },
+        series: [{
+          name: "Network", type: "graph", layout: "force",
+          force: { repulsion: 100, edgeLength: 50 },
+          data: nodes, links: styledLinks, categories, roam: true,
+          label: { show: false },
+          emphasis: { focus: "adjacency" },
+        }],
+      };
+    }
+
     // ── SPECIAL ───────────────────────────────────────────────────────────
     case "pictorial-bar": {
       const symbols = ["circle", "rect", "roundRect", "triangle", "diamond"];
@@ -1308,6 +1480,11 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     // ── RADAR ──
     "radar-basic": <><polygon points="12,3 21,8.5 21,15.5 12,21 3,15.5 3,8.5" stroke={c} strokeWidth="2" fill="none" /><polygon points="12,7 17,10 17,14 12,17 7,14 7,10" stroke={c} strokeWidth="1.5" fill="none" /></>,
     "radar-browsers": <><polygon points="12,4 20,9 20,16 12,21 4,16 4,9" stroke={c} strokeWidth="1.8" fill={c} fillOpacity="0.15" /></>,
+    "radar-aqi": <>
+      <polygon points="12,3 20,9 17,19 7,19 4,9" fill={c} opacity="0.1" />
+      <polygon points="12,5 18,10 16,17 8,17 6,10" fill={c} opacity="0.18" />
+      <polygon points="12,7 16,11 14,16 10,16 8,11" fill={c} opacity="0.3" />
+    </>,
     // ── HEATMAP ──
     "heat-cartesian": <><rect x="3" y="3" width="4" height="4" rx="0.5" fill={c} opacity="0.4" /><rect x="10" y="3" width="4" height="4" rx="0.5" fill={c} opacity="0.7" /><rect x="17" y="3" width="4" height="4" rx="0.5" fill={c} opacity="1" /><rect x="3" y="10" width="4" height="4" rx="0.5" fill={c} opacity="0.6" /><rect x="10" y="10" width="4" height="4" rx="0.5" fill={c} opacity="0.9" /><rect x="17" y="10" width="4" height="4" rx="0.5" fill={c} opacity="0.3" /><rect x="3" y="17" width="4" height="4" rx="0.5" fill={c} opacity="0.8" /><rect x="10" y="17" width="4" height="4" rx="0.5" fill={c} opacity="0.35" /><rect x="17" y="17" width="4" height="4" rx="0.5" fill={c} opacity="0.65" /></>,
     "heat-calendar": <>
@@ -1315,6 +1492,13 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       {[0.5, 0.2, 0.9, 0.4, 0.65, 0.3, 0.75].map((o, i) => <rect key={"b" + i} x={3 + i * 2.7} y="8" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
       {[0.35, 0.8, 0.25, 0.6, 0.15, 0.9, 0.45].map((o, i) => <rect key={"c" + i} x={3 + i * 2.7} y="12" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
       {[0.6, 0.3, 0.5, 0.85, 0.2, 0.4, 0.7].map((o, i) => <rect key={"d" + i} x={3 + i * 2.7} y="16" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+    </>,
+    "heat-large": <>
+      {Array.from({ length: 36 }).map((_, i) => {
+        const x = i % 6, y = Math.floor(i / 6);
+        const o = [0.2, 0.5, 0.8, 0.35, 0.65, 0.9][(x + y) % 6];
+        return <rect key={i} x={2 + x * 3.3} y={2 + y * 3.3} width="2.8" height="2.8" rx="0.3" fill={c} opacity={o} />;
+      })}
     </>,
     // ── GAUGE ──
     "gauge-simple": <><path d="M4 15a8 8 0 1 1 16 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M12 15l-3-5" stroke={c} strokeWidth="2" strokeLinecap="round" /></>,
@@ -1346,6 +1530,29 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <path d="M5.4 5.5c5 1 8 2 13 3M5.4 12c5 0 8-1 13-3M5.4 18c5 0 8 0 13-2" stroke={c} strokeWidth="1.4" opacity="0.5" fill="none" />
     </>,
     "funnel-basic": <path d="M4 4h16M6 9h12M8 14h8M10 19h4" stroke={c} strokeWidth="2" strokeLinecap="round" />,
+    "graph-les-mis": <>
+      <line x1="12" y1="12" x2="5" y2="5" stroke={c} strokeWidth="1" opacity="0.4" /><line x1="12" y1="12" x2="19" y2="5" stroke={c} strokeWidth="1" opacity="0.4" />
+      <line x1="12" y1="12" x2="5" y2="19" stroke={c} strokeWidth="1" opacity="0.4" /><line x1="12" y1="12" x2="19" y2="19" stroke={c} strokeWidth="1" opacity="0.4" />
+      <line x1="12" y1="12" x2="12" y2="4" stroke={c} strokeWidth="1" opacity="0.4" />
+      <circle cx="12" cy="12" r="3" fill={c} />
+      <circle cx="5" cy="5" r="1.4" fill={c} opacity="0.7" /><circle cx="19" cy="5" r="1.4" fill={c} opacity="0.7" />
+      <circle cx="5" cy="19" r="1.4" fill={c} opacity="0.7" /><circle cx="19" cy="19" r="1.4" fill={c} opacity="0.7" />
+      <circle cx="12" cy="4" r="1.4" fill={c} opacity="0.7" />
+    </>,
+    "graph-hide-overlap": <>
+      {([[6, 6], [9, 5], [12, 7], [15, 5], [18, 7], [7, 10], [10, 10], [13, 10], [16, 10], [8, 14], [11, 14], [14, 14], [17, 14], [9, 18], [13, 18]] as [number, number][]).map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="1.3" fill={c} opacity={0.4 + (i % 3) * 0.2} />
+      ))}
+      <line x1="9" y1="18" x2="13" y2="10" stroke={c} strokeWidth="1" opacity="0.3" strokeDasharray="1 1.4" />
+    </>,
+    "graph-gradient-edge": <>
+      <circle cx="5" cy="6" r="2.4" fill={c} />
+      <circle cx="19" cy="18" r="2.4" fill={c} opacity="0.25" />
+      {Array.from({ length: 10 }).map((_, i) => {
+        const t = (i + 1) / 11; const x = 5 + t * 14, y = 6 + t * 12;
+        return <circle key={i} cx={x} cy={y} r="1" fill={c} opacity={1 - t * 0.75} />;
+      })}
+    </>,
     // ── SPECIAL ──
     "pictorial-bar": <>
       <rect x="4" y="15" width="2.2" height="2.2" rx="0.5" fill={c} /><rect x="7.2" y="15" width="2.2" height="2.2" rx="0.5" fill={c} />
@@ -1360,6 +1567,26 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     </>,
   };
   return <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">{map[type] ?? map["bar-basic"]}</svg>;
+}
+
+// SVG export renders one DOM node per data point (unlike canvas/PNG, which just rasterizes
+// pixels), so a chart with 10k+ points produces a huge/laggy SVG. Downsample large series
+// for the SVG path only — PNG keeps the full dataset since it costs nothing extra there.
+const SVG_POINT_LIMIT = 3000;
+function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.EChartsOption; truncated: boolean; originalCount: number } {
+  let truncated = false;
+  let originalCount = 0;
+  const seriesArr = Array.isArray(option.series) ? option.series : option.series ? [option.series] : [];
+  const newSeries = seriesArr.map((s: any) => {
+    if (Array.isArray(s.data) && s.data.length > SVG_POINT_LIMIT) {
+      truncated = true;
+      originalCount = Math.max(originalCount, s.data.length);
+      const step = Math.ceil(s.data.length / SVG_POINT_LIMIT);
+      return { ...s, data: s.data.filter((_: unknown, i: number) => i % step === 0) };
+    }
+    return s;
+  });
+  return { option: truncated ? { ...option, series: newSeries } : option, truncated, originalCount };
 }
 
 // ─── ECharts Mount Hook ───────────────────────────────────────────────────────
@@ -1444,7 +1671,7 @@ export default function App() {
   const chartSize = sizePreset === "Custom" ? { w: customWidth, h: customHeight } : SIZE_PRESETS[sizePreset];
 
   useEffect(() => {
-    setDatasets(prev => prev.map(ds => ({ ...ds, data: labels.map((_, i) => ds.data[i] ?? rand(20, 100)) })));
+    setDatasets(prev => prev.map(ds => ({ ...ds, data: labels.map((_, i) => ds.data[i] ?? baseRand(20, 100)) })));
   }, [labels.length]);
 
   useEffect(() => {
@@ -1455,8 +1682,8 @@ export default function App() {
     setCollapsed(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
 
-  const randomizeData = () => setDatasets(prev => prev.map(ds => ({ ...ds, data: labels.map(() => rand(10, 100)) })));
-  const addDataset = () => setDatasets(prev => [...prev, { id: Date.now().toString(), name: `Dataset ${prev.length + 1}`, data: labels.map(() => rand(20, 100)), color: effectivePalette[prev.length % effectivePalette.length] }]);
+  const randomizeData = () => setDatasets(prev => prev.map(ds => ({ ...ds, data: labels.map(() => baseRand(10, 100)) })));
+  const addDataset = () => setDatasets(prev => [...prev, { id: Date.now().toString(), name: `Dataset ${prev.length + 1}`, data: labels.map(() => baseRand(20, 100)), color: effectivePalette[prev.length % effectivePalette.length] }]);
   const handlePrimaryColor = (hex: string) => { setHexInput(hex); if (isValidHex(hex)) setPrimaryColor(hex); };
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -1473,6 +1700,10 @@ export default function App() {
 
   // modal state for copy preview
   const [previewModal, setPreviewModal] = useState<{ type: "png" | "svg"; content: string } | null>(null);
+
+  // Shown when getSvgString() had to downsample a large-data chart for SVG export.
+  const [svgNotice, setSvgNotice] = useState<string | null>(null);
+  const flashSvgNotice = (msg: string) => { setSvgNotice(msg); setTimeout(() => setSvgNotice(null), 3500); };
 
   const EXPORT_PAD = 40;
   const exportBg = theme === "dark" ? "#1E1E2E" : "#ffffff";
@@ -1498,9 +1729,12 @@ export default function App() {
     });
   };
 
-  const getSvgString = (): string | null => {
-    const option = buildEChartsOption(chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine);
-    const exportOption = { ...option, animation: false, animationDuration: 0 };
+  const getSvgString = (): { svg: string; truncated: boolean; originalCount: number } | null => {
+    // Reuse the same option object already on screen (echartsOption) instead of calling
+    // buildEChartsOption() again — for static-demo charts that build fresh random data,
+    // a second call used to produce a different dataset than what's actually rendered.
+    const { option: dsOption, truncated, originalCount } = downsampleForSvg(echartsOption);
+    const exportOption = { ...dsOption, animation: false, animationDuration: 0 };
     const inst = echarts.init(document.createElement("div"), theme === "dark" ? "dark" : undefined, { renderer: "svg", width: chartSize.w, height: chartSize.h });
     inst.setOption(exportOption, { notMerge: true, silent: true });
     const inner = inst.renderToSVGString();
@@ -1512,7 +1746,7 @@ export default function App() {
   <rect width="${pw}" height="${ph}" fill="${exportBg}"/>
   <g transform="translate(${EXPORT_PAD},${EXPORT_PAD})">${inner}</g>
 </svg>`;
-    return wrapped;
+    return { svg: wrapped, truncated, originalCount };
   };
 
   const downloadPng = async () => {
@@ -1536,20 +1770,22 @@ export default function App() {
   };
 
   const downloadSvg = () => {
-    const s = getSvgString(); if (!s) return;
-    const a = document.createElement("a"); a.download = "chart.svg"; a.href = URL.createObjectURL(new Blob([s], { type: "image/svg+xml;charset=utf-8" })); a.click();
+    const result = getSvgString(); if (!result) return;
+    const a = document.createElement("a"); a.download = "chart.svg"; a.href = URL.createObjectURL(new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" })); a.click();
     setOpenMenu(null);
+    if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
   };
 
   const copySvg = async () => {
-    const s = getSvgString(); if (!s) return;
+    const result = getSvgString(); if (!result) return;
     setOpenMenu(null);
+    if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
     try {
-      await navigator.clipboard.writeText(s);
+      await navigator.clipboard.writeText(result.svg);
       flashCopied("svg");
     } catch {
       // Clipboard blocked — show in-app modal so user can copy the text
-      setPreviewModal({ type: "svg", content: s });
+      setPreviewModal({ type: "svg", content: result.svg });
     }
   };
 
@@ -1838,6 +2074,13 @@ export default function App() {
           <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: "#6366F1", color: "#fff" }}>SYNC LIVE</span>
         </div>
       </div>
+
+      {/* SVG downsample notice */}
+      {svgNotice && (
+        <div style={{ position: "fixed", bottom: 44, left: "50%", transform: "translateX(-50%)", background: isDark ? "#1E1E2E" : "#111827", color: "#fff", fontSize: 12, fontFamily: "Inter", padding: "9px 16px", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", zIndex: 110, maxWidth: 420, textAlign: "center" }}>
+          {svgNotice}
+        </div>
+      )}
 
       {/* Copy Preview Modal */}
       {previewModal && (
