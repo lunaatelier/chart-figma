@@ -71,6 +71,13 @@ export const ECHARTS_CATALOGUE = [
       { id: "bar-world-pop", label: "World Population" },
       { id: "bar-animation", label: "Animation Delay" },
       { id: "bar-brush", label: "Brush Select" },
+      { id: "bar-multi-y", label: "Multiple Y Axes" },
+      { id: "bar-encode", label: "Simple Encode" },
+      { id: "bar-watermark", label: "Watermark" },
+      { id: "bar-polar", label: "Bar on Polar" },
+      { id: "bar-polar-round", label: "Rounded Polar" },
+      { id: "bar-polar-stack", label: "Stacked Polar" },
+      { id: "bar-polar-stack-radial", label: "Stacked Polar (Radial)" },
     ],
   },
   {
@@ -90,6 +97,7 @@ export const ECHARTS_CATALOGUE = [
       { id: "scatter-bubble", label: "Bubble" },
       { id: "scatter-distribution", label: "Distribution" },
       { id: "scatter-single", label: "Single Axis" },
+      { id: "scatter-jitter", label: "Jittering" },
     ],
   },
   {
@@ -144,13 +152,14 @@ const STATIC_DEMO_CHARTS = new Set([
   "heat-cartesian", "heat-calendar",
   "radar-browsers",
   "tree-lr", "treemap-sunburst", "sankey-basic", "sankey-gradient",
-  "scatter-distribution", "scatter-single",
+  "scatter-distribution", "scatter-single", "scatter-jitter",
   "large-scale-area", "area-rainfall", "line-race",
 ]);
 // Chart types that only ever read datasets[0] — extra datasets are silently ignored
 const FIRST_DATASET_ONLY_CHARTS = new Set([
   "pie-basic", "pie-doughnut", "pie-half", "pie-rose", "pie-label-adjust",
   "treemap-basic", "funnel-basic", "pictorial-bar",
+  "bar-encode", "bar-polar-round",
 ]);
 // Gauge charts read a single number (data[0]), not the full label/value grid
 const SINGLE_VALUE_CHARTS = new Set(["gauge-simple", "gauge-speed"]);
@@ -645,6 +654,153 @@ function buildEChartsOption(
         })),
       };
 
+    case "bar-multi-y": {
+      // One value axis per dataset (first on the left, the rest stacked on the right via
+      // offset) so each series keeps its own scale — the last series renders as a line to
+      // visually distinguish it, matching the official "Multiple Y Axes" example's shape.
+      const rightCount = Math.max(0, datasets.length - 1);
+      const multiYRight = rightCount <= 1 ? 60 : 60 + (rightCount - 1) * 68;
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg,
+        tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+        legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
+        grid: withMinRight(grid, multiYRight),
+        xAxis: { type: "category", data: userLabels, ...axisTick },
+        yAxis: datasets.map((ds, i) => ({
+          type: "value" as const, name: ds.name, position: (i === 0 ? "left" : "right") as const,
+          offset: i <= 1 ? 0 : (i - 1) * 68, alignTicks: true,
+          nameTextStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
+          axisLine: { show: true, lineStyle: { color: palette[i % palette.length] } },
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
+          splitLine: { show: i === 0, lineStyle: { color: axisC } },
+        })),
+        series: datasets.map((ds, i) => ({
+          name: ds.name, type: (i === datasets.length - 1 && datasets.length > 1 ? "line" : "bar") as const,
+          yAxisIndex: i, data: ds.data, smooth: smoothLine, barMaxWidth: 30,
+          itemStyle: { color: palette[i % palette.length] },
+          lineStyle: { color: palette[i % palette.length], width: 2.5 },
+        })),
+      };
+    }
+
+    case "bar-encode": {
+      // "Encode" means mapping one data dimension to a visual channel (here: bar value →
+      // color) instead of hand-picking colors — visualMap reads straight off the bar's
+      // own value, no separate second dimension needed.
+      const v = userVals(0);
+      const lo = Math.min(...v), hi = Math.max(...v);
+      return {
+        backgroundColor: bg, title: titleCfg || { text: "Simple Encode", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+        grid: { ...gridFull, left: Math.max(...userLabels.map(l => l.length)) * 7 + (isSmall ? 16 : 24), bottom: 56 },
+        xAxis: { type: "value", ...axisTick },
+        yAxis: { type: "category", data: userLabels, ...axisTick },
+        visualMap: {
+          orient: "horizontal", left: "center", bottom: 4, calculable: true, dimension: 0,
+          min: lo, max: hi, text: ["High", "Low"], textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
+          inRange: { color: [palette[3] ?? "#FD665F", palette[2] ?? "#FFCE34", palette[0] ?? "#65B581"] },
+        },
+        series: [{ type: "bar", data: v, label: { show: true, position: "right", color: fg, fontFamily: "Inter", fontSize: 11 } }],
+        legend: { show: false },
+      };
+    }
+
+    case "bar-watermark": {
+      // Demonstrates the tiled-canvas-pattern watermark technique from the official
+      // example, applied to a plain Data-Input-driven bar+line combo instead of the
+      // original's hardcoded download-stats dashboard.
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      canvas.width = canvas.height = 100;
+      if (ctx) {
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.globalAlpha = theme === "dark" ? 0.06 : 0.05;
+        ctx.font = "20px Inter";
+        ctx.translate(50, 50); ctx.rotate(-Math.PI / 4);
+        ctx.fillStyle = fg; ctx.fillText("CHARTPRO", 0, 0);
+      }
+      return {
+        backgroundColor: { type: "pattern", image: canvas, repeat: "repeat" } as any,
+        color: palette, title: titleCfg, legend, tooltip: { ...tooltip, trigger: "axis" }, grid,
+        xAxis: { type: "category", data: userLabels, ...axisTick },
+        yAxis: { type: "value", ...axisTick },
+        series: datasets.map((ds, i) => ({
+          name: ds.name, type: "bar", data: ds.data,
+          itemStyle: { color: palette[i % palette.length], borderRadius: [4, 4, 0, 0] }, barMaxWidth: 40,
+        })),
+      };
+    }
+
+    case "bar-polar": {
+      // radiusAxis carries the categories (each label becomes a concentric ring),
+      // angleAxis carries the value — the official "Bar Chart on Polar" layout.
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg,
+        tooltip: { trigger: "axis" },
+        legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
+        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", title ? "56%" : "52%"] },
+        angleAxis: { ...axisTick },
+        radiusAxis: { type: "category", data: userLabels, z: 10, ...axisTick },
+        series: datasets.map((ds, i) => ({
+          name: ds.name, type: "bar" as const, coordinateSystem: "polar" as const, data: ds.data,
+          itemStyle: { color: palette[i % palette.length] },
+        })),
+      };
+    }
+
+    case "bar-polar-round": {
+      // Same values rendered twice — once square-cornered, once with roundCap — so the
+      // two sit side by side per ring and the cap difference is easy to compare directly.
+      const v = userVals(0);
+      return {
+        backgroundColor: bg, title: titleCfg || { text: "Rounded Bar on Polar", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: { trigger: "axis" },
+        legend: { ...legendAxisSafe, data: ["Square Cap", "Round Cap"] },
+        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", "52%"] },
+        angleAxis: { startAngle: 90, ...axisTick },
+        radiusAxis: { type: "category", data: userLabels, z: 10, ...axisTick },
+        series: [
+          { name: "Square Cap", type: "bar", coordinateSystem: "polar", data: v, itemStyle: { color: palette[0], opacity: 0.85 } },
+          { name: "Round Cap", type: "bar", coordinateSystem: "polar", data: v, roundCap: true, itemStyle: { color: palette[1] ?? palette[0] } },
+        ],
+      };
+    }
+
+    case "bar-polar-stack": {
+      // angleAxis is the value axis here, so each radiusAxis ring is a stacked wedge —
+      // the polar equivalent of a stacked bar chart.
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg,
+        tooltip: { trigger: "axis" },
+        legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
+        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", title ? "56%" : "52%"] },
+        angleAxis: { ...axisTick },
+        radiusAxis: { type: "category", data: userLabels, z: 10, ...axisTick },
+        series: datasets.map((ds, i) => ({
+          name: ds.name, type: "bar" as const, coordinateSystem: "polar" as const, stack: "polar-stack", data: ds.data,
+          emphasis: { focus: "series" as const }, itemStyle: { color: palette[i % palette.length] },
+        })),
+      };
+    }
+
+    case "bar-polar-stack-radial": {
+      // Axis roles swapped from bar-polar-stack: angleAxis carries the categories (each
+      // label is a spoke), radiusAxis is the value — stacked bars radiate outward instead
+      // of stacking around a ring.
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg,
+        tooltip: { trigger: "axis" },
+        legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
+        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", title ? "56%" : "52%"] },
+        angleAxis: { type: "category", data: userLabels, ...axisTick },
+        radiusAxis: { ...axisTick },
+        series: datasets.map((ds, i) => ({
+          name: ds.name, type: "bar" as const, coordinateSystem: "polar" as const, stack: "polar-stack-radial", data: ds.data,
+          emphasis: { focus: "series" as const }, itemStyle: { color: palette[i % palette.length] },
+        })),
+      };
+    }
+
     // ── PIE ───────────────────────────────────────────────────────────────
     case "pie-basic": {
       const v = userVals(0);
@@ -763,10 +919,27 @@ function buildEChartsOption(
       const data = days.flatMap((_, di) => Array.from({ length: rand(3, 8) }, () => [rand(0, 23), di, rand(1, 10)]));
       return {
         backgroundColor: bg, color: palette, title: titleCfg, tooltip: { trigger: "item" },
-        grid: { ...gridFull, top: title ? 60 : 40, bottom: 60, left: yAxisLabelWidth(days) },
+        grid: { ...gridFull, top: title ? 60 : 40, bottom: 60, left: Math.max(...days.map(d => d.length)) * 7 + (isSmall ? 16 : 24) },
         xAxis: { type: "category", data: hours, ...axisTick, splitLine: { show: true, lineStyle: { color: axisC } } },
         yAxis: { type: "category", data: days, ...axisTick, splitLine: { show: true, lineStyle: { color: axisC } } },
         series: [{ type: "scatter", data: data.map(([h, d, s]) => ({ value: [h, d], symbolSize: s * 4, itemStyle: { color: palette[d % palette.length], opacity: 0.7 } })) }],
+        legend: { show: false },
+      };
+    }
+
+    case "scatter-jitter": {
+      // category-axis `jitter` (ECharts 6.0+) spreads overlapping points sideways within
+      // their category band instead of letting them stack on the exact same x position.
+      const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const data: [number, number][] = [];
+      days.forEach((_, di) => { const n = rand(80, 150); for (let i = 0; i < n; i++) data.push([di, +(rand(0, 100) / 10).toFixed(1)]); });
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "Scatter with Jittering", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: { trigger: "item" },
+        grid: gridFull,
+        xAxis: { type: "category", data: days, jitter: isSmall ? 12 : 24, ...axisTick },
+        yAxis: { type: "value", min: 0, max: 10, ...axisTick },
+        series: [{ name: "Sample", type: "scatter", data, colorBy: "data", symbolSize: 6, itemStyle: { opacity: 0.45 } }],
         legend: { show: false },
       };
     }
@@ -1094,6 +1267,15 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     "bar-world-pop": <><rect x="3" y="5" width="13" height="3" rx="1.5" fill={c} /><rect x="3" y="10.5" width="17" height="3" rx="1.5" fill={c} opacity="0.7" /><rect x="3" y="16" width="9" height="3" rx="1.5" fill={c} opacity="0.45" /></>,
     "bar-animation": <><path d="M4 5c2 2.2 4 2.2 6 0" stroke={c} strokeWidth="1.5" strokeLinecap="round" fill="none" opacity="0.6" /><rect x="5" y="10" width="4" height="10" rx="1" fill={c} /><rect x="11" y="6" width="4" height="14" rx="1" fill={c} opacity="0.7" /><rect x="17" y="13" width="4" height="7" rx="1" fill={c} opacity="0.45" /></>,
     "bar-brush": <><rect x="4" y="10" width="3" height="10" fill={c} opacity="0.35" /><rect x="9.5" y="6" width="3" height="14" fill={c} /><rect x="15" y="12" width="3" height="8" fill={c} /><rect x="20.5" y="8" width="2" height="12" fill={c} opacity="0.35" /><rect x="7.5" y="3" width="12" height="14" rx="1" stroke={c} strokeWidth="1.2" strokeDasharray="2 2" fill="none" /></>,
+    "bar-multi-y": <><line x1="4" y1="3" x2="4" y2="20" stroke={c} strokeWidth="1.4" /><line x1="20" y1="3" x2="20" y2="20" stroke={c} strokeWidth="1.4" opacity="0.55" /><rect x="7" y="10" width="3" height="10" fill={c} /><rect x="12" y="6" width="3" height="14" fill={c} opacity="0.55" /></>,
+    "bar-encode": <><rect x="3" y="4" width="18" height="3" rx="1" fill={c} opacity="0.25" /><rect x="3" y="9" width="10" height="3" rx="1" fill={c} opacity="0.55" /><rect x="3" y="14" width="14" height="3" rx="1" fill={c} opacity="0.85" /><rect x="3" y="20" width="18" height="1.5" rx="0.75" fill={c} opacity="0.4" /></>,
+    "bar-watermark": <><rect x="5" y="10" width="3" height="10" fill={c} opacity="0.8" /><rect x="10.5" y="6" width="3" height="14" fill={c} opacity="0.8" /><rect x="16" y="13" width="3" height="7" fill={c} opacity="0.8" /><line x1="2" y1="4" x2="6" y2="8" stroke={c} strokeWidth="1" opacity="0.25" /><line x1="9" y1="2" x2="14" y2="7" stroke={c} strokeWidth="1" opacity="0.25" /><line x1="16" y1="3" x2="21" y2="8" stroke={c} strokeWidth="1" opacity="0.25" /></>,
+    "bar-polar": <><circle cx="12" cy="12" r="9" stroke={c} strokeWidth="1.2" opacity="0.3" fill="none" /><circle cx="12" cy="12" r="5.5" stroke={c} strokeWidth="1.2" opacity="0.3" fill="none" /><path d="M12 12L12 3A9 9 0 0 1 19.8 7.5Z" fill={c} opacity="0.75" /><path d="M12 12L12 6.5A5.5 5.5 0 0 1 16.8 9Z" fill={c} opacity="0.5" /></>,
+    "bar-polar-round": <><path d="M6 16a8 8 0 0 1 8-12" stroke={c} strokeWidth="3" fill="none" opacity="0.4" /><path d="M9 19a8 8 0 0 1 8-15" stroke={c} strokeWidth="3" strokeLinecap="round" fill="none" /></>,
+    "bar-polar-stack": <><circle cx="12" cy="12" r="8.5" fill="none" stroke={c} strokeWidth="3" opacity="0.85" strokeDasharray="14 40" /><circle cx="12" cy="12" r="8.5" fill="none" stroke={c} strokeWidth="3" opacity="0.4" strokeDasharray="20 40" strokeDashoffset="-14" /><circle cx="12" cy="12" r="4.5" fill="none" stroke={c} strokeWidth="2.5" opacity="0.85" strokeDasharray="8 20" /><circle cx="12" cy="12" r="4.5" fill="none" stroke={c} strokeWidth="2.5" opacity="0.4" strokeDasharray="10 20" strokeDashoffset="-8" /></>,
+    "bar-polar-stack-radial": <>{([[12, 3], [19.4, 7.5], [19.4, 16.5], [12, 20], [4.6, 16.5], [4.6, 7.5]] as [number, number][]).map(([x, y], i) => (
+      <g key={i}><line x1="12" y1="12" x2={x} y2={y} stroke={c} strokeWidth="2.2" opacity="0.3" /><line x1="12" y1="12" x2={(12 + x) / 2} y2={(12 + y) / 2} stroke={c} strokeWidth="2.2" opacity="0.85" /></g>
+    ))}</>,
     // ── PIE ──
     "pie-basic": <><path d="M12 2a10 10 0 1 0 10 10H12V2z" stroke={c} strokeWidth="2" fill="none" /><path d="M12 2a10 10 0 0 1 10 10" stroke={c} strokeWidth="2" fill="none" /></>,
     "pie-doughnut": <><circle cx="12" cy="12" r="9" stroke={c} strokeWidth="2" fill="none" /><circle cx="12" cy="12" r="4" stroke={c} strokeWidth="2" fill="none" /></>,
@@ -1109,6 +1291,10 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     "scatter-single": <>
       <line x1="3" y1="7" x2="21" y2="7" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="3" y1="12.5" x2="21" y2="12.5" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="3" y1="18" x2="21" y2="18" stroke={c} strokeWidth="1" opacity="0.3" />
       {dots([[6, 7], [11, 7], [9, 12.5], [15, 12.5], [18, 12.5], [13, 18], [17, 18]], 1.2)}
+    </>,
+    "scatter-jitter": <>
+      <line x1="7" y1="3" x2="7" y2="21" stroke={c} strokeWidth="1" opacity="0.25" /><line x1="13" y1="3" x2="13" y2="21" stroke={c} strokeWidth="1" opacity="0.25" /><line x1="19" y1="3" x2="19" y2="21" stroke={c} strokeWidth="1" opacity="0.25" />
+      {dots([[3, 8], [4.5, 14], [2.5, 17], [6, 6], [8, 11], [9.5, 16], [7, 19], [11, 9], [13, 6], [15, 13], [12, 17], [14.5, 7], [17, 11], [20, 15], [18, 7], [21, 19], [16, 17]], 1)}
     </>,
     // ── CANDLESTICK ──
     "candle-basic": <><rect x="4" y="6" width="4" height="10" stroke={c} strokeWidth="1.5" fill="none" /><line x1="6" y1="3" x2="6" y2="6" stroke={c} strokeWidth="1.5" /><line x1="6" y1="16" x2="6" y2="20" stroke={c} strokeWidth="1.5" /><rect x="14" y="9" width="4" height="8" stroke={c} strokeWidth="1.5" fill="none" /><line x1="16" y1="4" x2="16" y2="9" stroke={c} strokeWidth="1.5" /><line x1="16" y1="17" x2="16" y2="21" stroke={c} strokeWidth="1.5" /></>,
@@ -1184,25 +1370,24 @@ function EChartsView({ option, size, theme, exportRef }: {
   const divRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<echarts.ECharts | null>(null);
 
+  // A fresh echarts instance is created for every option/theme/size change instead of
+  // reusing one via setOption(notMerge:true) — ECharts has a view-cache bug where a bar
+  // series switching coordinateSystem (e.g. cartesian2d -> polar) on a *reused* instance
+  // renders the old cartesian view on top of the new polar axes. Since notMerge:true
+  // already discards all prior state on every update anyway, a full re-init costs little
+  // and sidesteps the bug for this and any other future coordinate-system-switching chart.
+  const optionKey = useMemo(() => JSON.stringify(option), [option]);
   useEffect(() => {
     const el = divRef.current; if (!el) return;
     instanceRef.current?.dispose();
-    instanceRef.current = echarts.init(el, theme === "dark" ? "dark" : undefined);
-    exportRef.current = instanceRef.current;
-    return () => { instanceRef.current?.dispose(); instanceRef.current = null; exportRef.current = null; };
-  }, [theme]);
-
-  const optionKey = useMemo(() => JSON.stringify(option), [option]);
-  useEffect(() => {
-    if (!instanceRef.current) {
-      const el = divRef.current; if (!el) return;
-      instanceRef.current = echarts.init(el, theme === "dark" ? "dark" : undefined);
-      exportRef.current = instanceRef.current;
-    }
-    instanceRef.current.resize({ width: size.w, height: size.h });
-    instanceRef.current.setOption(option, { notMerge: true, lazyUpdate: false });
+    const inst = echarts.init(el, theme === "dark" ? "dark" : undefined);
+    inst.resize({ width: size.w, height: size.h });
+    inst.setOption(option, { notMerge: true, lazyUpdate: false });
+    instanceRef.current = inst;
+    exportRef.current = inst;
+    return () => { inst.dispose(); if (instanceRef.current === inst) instanceRef.current = null; if (exportRef.current === inst) exportRef.current = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [optionKey, size.w, size.h]);
+  }, [optionKey, size.w, size.h, theme]);
 
   const bg = theme === "dark" ? "#1E1E2E" : "#ffffff";
   const previewPad = size.w <= 400 ? 20 : 40;
