@@ -215,6 +215,7 @@ export const ECHARTS_CATALOGUE = [
     cat: "Special", items: [
       { id: "pictorial-bar", label: "Pictorial Bar" },
       { id: "share-dataset", label: "Share Dataset" },
+      { id: "lines-synthetic", label: "Synthetic Large Lines" },
     ],
   },
 ];
@@ -232,6 +233,7 @@ const STATIC_DEMO_CHARTS = new Set([
   "large-scale-area", "area-rainfall", "line-race",
   "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
   "matrix-covariance", "map-usa-population", "geo-graph", "matrix-mini-bar-geo",
+  "lines-synthetic",
 ]);
 // Chart types that need an async-loaded map registered via echarts.registerMap() before
 // buildEChartsOption() can safely reference it (App gates rendering on load status)
@@ -1408,6 +1410,54 @@ function buildEChartsOption(
       } as any;
     }
 
+    case "lines-synthetic": {
+      // Official example streams ~1M real NYC street segments from 32 binary chunk files
+      // fetched over XHR. Reinterpreted as a self-contained rendering-technique demo (no
+      // external asset, no geo map) — a synthetic street-grid of 2-point `lines` series
+      // entries, deterministic per the chart's seeded rand so the "randomness" (jitter) is
+      // stable across renders while segment count stays exact (no probabilistic skipping).
+      const gridN = 110; // 2*(gridN+1)*gridN ≈ 24.4K segments — within the agreed 20K-50K range
+      const span = 1000;
+      const step = span / gridN;
+      const jitter = () => (rand(-30, 30) / 100) * step;
+      const lineData: { coords: [number, number][] }[] = [];
+      for (let r = 0; r <= gridN; r++) {
+        const y = r * step + jitter();
+        for (let cSeg = 0; cSeg < gridN; cSeg++) {
+          lineData.push({ coords: [[cSeg * step, y], [(cSeg + 1) * step, y + jitter()]] });
+        }
+      }
+      for (let cIdx = 0; cIdx <= gridN; cIdx++) {
+        const x = cIdx * step + jitter();
+        for (let rSeg = 0; rSeg < gridN; rSeg++) {
+          lineData.push({ coords: [[x, rSeg * step], [x + jitter(), (rSeg + 1) * step]] });
+        }
+      }
+      return {
+        backgroundColor: bg,
+        title: titleCfg || { text: "Synthetic Large Lines", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        tooltip: { show: false },
+        xAxis: { type: "value", min: 0, max: span, show: false },
+        yAxis: { type: "value", min: 0, max: span, show: false, inverse: true },
+        grid: { left: 4, right: 4, top: title ? topPad : 8, bottom: 4 },
+        series: [{
+          type: "lines", coordinateSystem: "cartesian2d",
+          xAxisIndex: 0, yAxisIndex: 0,
+          polyline: false,
+          // progressive:0 disables ECharts' default chunked-over-frames rendering for
+          // series above ~3000 points — without a running animation loop (animation:false
+          // below) nothing ever ticks the later chunks, so only the first ~3000 lines were
+          // drawn and the rest of the canvas stayed blank.
+          progressive: 0,
+          silent: true, animation: false,
+          blendMode: theme === "dark" ? "lighter" : "source-over",
+          lineStyle: { color: palette[0] ?? "#6366f1", width: 0.6, opacity: theme === "dark" ? 0.35 : 0.55 },
+          data: lineData,
+        } as any],
+        legend: { show: false },
+      } as any;
+    }
+
     // ── GAUGE ─────────────────────────────────────────────────────────────
     case "gauge-simple": {
       const val = datasets[0]?.data[0] ?? 67;
@@ -1864,6 +1914,10 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <path d="M12 2a4.5 4.5 0 0 1 3.9 6.75" fill={c} opacity="0.55" />
       <line x1="2" y1="13" x2="22" y2="13" stroke={c} strokeWidth="1" strokeDasharray="1.5 1.5" opacity="0.5" />
       <path d="M4 19l4-3 4 2 4-4 4 2" stroke={c} strokeWidth="1.6" strokeLinecap="round" fill="none" />
+    </>,
+    "lines-synthetic": <>
+      {[3, 8, 13, 18].map(y => <line key={"h" + y} x1="2" y1={y} x2="22" y2={y + (y % 2 ? 1 : -1) * 0.6} stroke={c} strokeWidth="0.8" opacity="0.55" />)}
+      {[4, 9, 14, 19].map(x => <line key={"v" + x} x1={x} y1="2" x2={x + (x % 2 ? 1 : -1) * 0.6} y2="22" stroke={c} strokeWidth="0.8" opacity="0.55" />)}
     </>,
   };
   return <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">{map[type] ?? map["bar-basic"]}</svg>;
