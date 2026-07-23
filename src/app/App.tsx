@@ -339,8 +339,13 @@ function buildEChartsOption(
   };
   const topPad = title ? (isSmall ? 36 : 52) : (isSmall ? 12 : 20);
   const gridL = isSmall ? 8 : 48;
-  const grid = { left: gridL, right: legendBottom ? 8 : 96, top: topPad, bottom: isMid ? 60 : 28, containLabel: true };
-  const gridFull = { left: gridL, right: isSmall ? 8 : 12, top: topPad, bottom: 28, containLabel: true };
+  // When the legend is at the bottom (no vertical legend competing for right-side room),
+  // mirror the left margin instead of a much tighter hardcoded value — a lone left-side
+  // Y axis otherwise made the plot area look lopsided (left ~48px vs right ~8px at M/L size).
+  const grid = { left: gridL, right: legendBottom ? gridL : 96, top: topPad, bottom: isMid ? 60 : 28, containLabel: true };
+  // Same left/right mirroring as `grid` above — these charts have no legend or right-side
+  // content either, so a bare 8-12px right margin looked just as lopsided against gridL.
+  const gridFull = { left: gridL, right: gridL, top: topPad, bottom: 28, containLabel: true };
   const tooltip: echarts.TooltipComponentOption = { trigger: "axis", backgroundColor: theme === "dark" ? "#1f2937" : "#fff", borderColor: axisC, textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 } };
   // A second/opposite value yAxis needs room reserved on the right regardless of legend width —
   // "named" (has its own name label) needs more than a bare tick-only axis.
