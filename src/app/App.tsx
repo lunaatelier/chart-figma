@@ -32,6 +32,42 @@ function generatePalette(hex: string): string[] {
 const isValidHex = (h: string) => /^#[0-9A-Fa-f]{6}$/.test(h);
 const baseRand = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
 
+// ─── USA Map Loader ────────────────────────────────────────────────────────────
+// Alaska/Hawaii/Puerto Rico are geographically distant from the mainland — echarts
+// insets them at these fixed offsets (registerMap's 3rd arg) rather than plotting
+// true coordinates, matching the official ECharts "USA Population" example.
+const USA_SPECIAL_AREAS: Record<string, { left: number; top: number; width: number }> = {
+  Alaska: { left: -131, top: 25, width: 15 },
+  Hawaii: { left: -110, top: 28, width: 5 },
+  "Puerto Rico": { left: -76, top: 26, width: 2 },
+};
+
+let usaMapPromise: Promise<void> | null = null;
+
+// Lazy-fetches public/maps/USA.json and registers it with echarts exactly once, caching
+// the in-flight promise so concurrent mounts/StrictMode double-effects share one fetch.
+// A failed load clears the cache so the next call (e.g. a retry button) fetches again.
+function loadUSAMap(): Promise<void> {
+  if (echarts.getMap("USA")) return Promise.resolve();
+  if (usaMapPromise) return usaMapPromise;
+
+  usaMapPromise = fetch(`${import.meta.env.BASE_URL}maps/USA.json`)
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`USA map load failed: ${response.status}`);
+      const geoJson = await response.json();
+      if (geoJson?.type !== "FeatureCollection" || !Array.isArray(geoJson.features)) {
+        throw new Error("Invalid USA GeoJSON");
+      }
+      echarts.registerMap("USA", geoJson, USA_SPECIAL_AREAS);
+    })
+    .catch((error) => {
+      usaMapPromise = null;
+      throw error;
+    });
+
+  return usaMapPromise;
+}
+
 // Deterministic PRNG (mulberry32) seeded from a chart id — so a "static demo" chart's fake
 // data stays put across re-renders that shouldn't change it (theme toggle, resize, SVG
 // export re-invoking buildEChartsOption), instead of reshuffling on every call.
@@ -149,6 +185,11 @@ export const ECHARTS_CATALOGUE = [
     ],
   },
   {
+    cat: "Geo / Map", items: [
+      { id: "map-usa-population", label: "USA Population" },
+    ],
+  },
+  {
     cat: "Gauge", items: [
       { id: "gauge-simple", label: "Simple" },
       { id: "gauge-speed", label: "Speed" },
@@ -188,8 +229,11 @@ const STATIC_DEMO_CHARTS = new Set([
   "scatter-distribution", "scatter-single", "scatter-jitter",
   "large-scale-area", "area-rainfall", "line-race",
   "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
-  "matrix-covariance",
+  "matrix-covariance", "map-usa-population",
 ]);
+// Chart types that need an async-loaded map registered via echarts.registerMap() before
+// buildEChartsOption() can safely reference it (App gates rendering on load status)
+const MAP_CHART_IDS = new Set(["map-usa-population"]);
 // Chart types that only ever read datasets[0] — extra datasets are silently ignored
 const FIRST_DATASET_ONLY_CHARTS = new Set([
   "pie-basic", "pie-doughnut", "pie-half", "pie-rose", "pie-label-adjust",
@@ -1214,6 +1258,44 @@ function buildEChartsOption(
       } as any;
     }
 
+    // ── GEO / MAP ─────────────────────────────────────────────────────────
+    case "map-usa-population": {
+      // Choropleth over the `USA` map registered by loadUSAMap() (App gates rendering
+      // until that registration resolves). Synthetic per-state values (not real 2012
+      // census figures) generated with the chart's seeded rand, matching this app's
+      // established pattern for static-demo charts.
+      const stateNames = [
+        "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
+        "Delaware", "District of Columbia", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois",
+        "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts",
+        "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+        "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota",
+        "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
+        "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+        "West Virginia", "Wisconsin", "Wyoming", "Puerto Rico",
+      ];
+      const mapData = stateNames.map(name => ({ name, value: rand(6, 390) }));
+      return {
+        backgroundColor: bg,
+        title: titleCfg || { text: "USA Population", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        tooltip: { trigger: "item", formatter: (p: any) => `${p.name}: ${p.value ?? "—"}` },
+        visualMap: {
+          min: 0, max: 400, left: 12, top: title ? topPad + 8 : 12, bottom: 12, calculable: !isSmall,
+          itemWidth: isSmall ? 8 : 14, itemHeight: isSmall ? 60 : 120,
+          inRange: { color: ["#e0e7ff", palette[0] ?? "#6366f1"] },
+          textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 9 : 11 },
+        },
+        series: [{
+          type: "map", map: "USA", roam: true,
+          data: mapData,
+          label: { show: false },
+          emphasis: { label: { show: true, color: fg, fontFamily: "Inter", fontSize: 10 }, itemStyle: { areaColor: palette[3] ?? "#f59e0b" } },
+          itemStyle: { borderColor: axisC, borderWidth: 0.5 },
+        } as any],
+        legend: { show: false },
+      } as any;
+    }
+
     // ── GAUGE ─────────────────────────────────────────────────────────────
     case "gauge-simple": {
       const val = datasets[0]?.data[0] ?? 67;
@@ -1588,6 +1670,12 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <rect x="3" y="3" width="5" height="5" fill={c} opacity="1" /><rect x="8" y="8" width="5" height="5" fill={c} opacity="1" /><rect x="13" y="13" width="5" height="5" fill={c} opacity="1" /><rect x="18" y="18" width="3" height="3" fill={c} opacity="1" />
       <rect x="8" y="3" width="5" height="5" fill={c} opacity="0.4" /><rect x="13" y="3" width="5" height="5" fill={c} opacity="0.2" /><rect x="3" y="8" width="5" height="5" fill={c} opacity="0.4" />
     </>,
+    // ── GEO / MAP ──
+    "map-usa-population": <>
+      <path d="M3 6l4-2 4 2 4-2 6 3v13l-6-3-4 2-4-2-4 2V6z" stroke={c} strokeWidth="1.2" fill="none" opacity="0.55" />
+      <path d="M7 4v15M11 6v13" stroke={c} strokeWidth="0.9" opacity="0.3" />
+      <circle cx="14" cy="11" r="1.6" fill={c} /><circle cx="9" cy="15" r="1.1" fill={c} opacity="0.7" /><circle cx="18" cy="9" r="1.1" fill={c} opacity="0.5" />
+    </>,
     // ── GAUGE ──
     "gauge-simple": <><path d="M4 15a8 8 0 1 1 16 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M12 15l-3-5" stroke={c} strokeWidth="2" strokeLinecap="round" /></>,
     "gauge-speed": <>
@@ -1752,6 +1840,10 @@ export default function App() {
   const [chartTitle, setChartTitle] = useState("Monthly Revenue Growth 2024");
   const [editingTitle, setEditingTitle] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [mapStatus, setMapStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    echarts.getMap("USA") ? "ready" : MAP_CHART_IDS.has(chartType) ? "loading" : "idle"
+  );
+  const [mapRetryToken, setMapRetryToken] = useState(0);
 
   const echartsExportRef = useRef<echarts.ECharts | null>(null);
 
@@ -1765,6 +1857,18 @@ export default function App() {
   useEffect(() => {
     if (isValidHex(primaryColor)) { setPalette(generatePalette(primaryColor)); setManualPalette([]); }
   }, [primaryColor]);
+
+  // Fetches/registers the USA map only when a map-based chart is actually selected.
+  useEffect(() => {
+    if (!MAP_CHART_IDS.has(chartType)) return;
+    if (echarts.getMap("USA")) { setMapStatus("ready"); return; }
+    let cancelled = false;
+    setMapStatus("loading");
+    loadUSAMap()
+      .then(() => { if (!cancelled) setMapStatus("ready"); })
+      .catch(() => { if (!cancelled) setMapStatus("error"); });
+    return () => { cancelled = true; };
+  }, [chartType, mapRetryToken]);
 
   const toggleSection = useCallback((id: string) => {
     setCollapsed(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1818,6 +1922,7 @@ export default function App() {
   };
 
   const getSvgString = (): { svg: string; truncated: boolean; originalCount: number } | null => {
+    if (MAP_CHART_IDS.has(chartType) && mapStatus !== "ready") return null;
     // Reuse the same option object already on screen (echartsOption) instead of calling
     // buildEChartsOption() again — for static-demo charts that build fresh random data,
     // a second call used to produce a different dataset than what's actually rendered.
@@ -2141,7 +2246,22 @@ export default function App() {
 
         {/* Preview */}
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", padding: 40, background: canvasBg }}>
-          <EChartsView option={echartsOption} size={chartSize} theme={theme} exportRef={echartsExportRef} />
+          {MAP_CHART_IDS.has(chartType) && mapStatus !== "ready" ? (
+            mapStatus === "error" ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, color: subText, fontFamily: "Inter", fontSize: 13 }}>
+                <span>지도 데이터를 불러오지 못했어요.</span>
+                <button onClick={() => setMapRetryToken(t => t + 1)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>
+                  <RefreshCw size={13} /> 다시 시도
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, color: subText, fontFamily: "Inter", fontSize: 13 }}>
+                <RefreshCw size={15} className="animate-spin" /> 지도 불러오는 중...
+              </div>
+            )
+          ) : (
+            <EChartsView option={echartsOption} size={chartSize} theme={theme} exportRef={echartsExportRef} />
+          )}
         </div>
       </div>
 
