@@ -187,6 +187,7 @@ export const ECHARTS_CATALOGUE = [
   {
     cat: "Geo / Map", items: [
       { id: "map-usa-population", label: "USA Population" },
+      { id: "geo-graph", label: "Geo Graph" },
     ],
   },
   {
@@ -229,11 +230,11 @@ const STATIC_DEMO_CHARTS = new Set([
   "scatter-distribution", "scatter-single", "scatter-jitter",
   "large-scale-area", "area-rainfall", "line-race",
   "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
-  "matrix-covariance", "map-usa-population",
+  "matrix-covariance", "map-usa-population", "geo-graph",
 ]);
 // Chart types that need an async-loaded map registered via echarts.registerMap() before
 // buildEChartsOption() can safely reference it (App gates rendering on load status)
-const MAP_CHART_IDS = new Set(["map-usa-population"]);
+const MAP_CHART_IDS = new Set(["map-usa-population", "geo-graph"]);
 // Chart types that only ever read datasets[0] — extra datasets are silently ignored
 const FIRST_DATASET_ONLY_CHARTS = new Set([
   "pie-basic", "pie-doughnut", "pie-half", "pie-rose", "pie-label-adjust",
@@ -1296,6 +1297,46 @@ function buildEChartsOption(
       } as any;
     }
 
+    case "geo-graph": {
+      // Official example ("Travel Routes") plots a graph series in real lon/lat over a
+      // `geo` component (map: 'ch', Switzerland). Reinterpreted here over the already
+      // -registered `USA` map so it shares loadUSAMap() with map-usa-population instead
+      // of needing a second GeoJSON asset — a cross-country road-trip route between real
+      // US city coordinates.
+      const cities: [string, number, number][] = [
+        ["New York", -74.006, 40.7128], ["Boston", -71.0589, 42.3601],
+        ["Chicago", -87.6298, 41.8781], ["Denver", -104.9903, 39.7392],
+        ["Salt Lake City", -111.891, 40.7608], ["Seattle", -122.3321, 47.6062],
+        ["San Francisco", -122.4194, 37.7749], ["Los Angeles", -118.2437, 34.0522],
+        ["Phoenix", -112.074, 33.4484], ["Dallas", -96.797, 32.7767],
+        ["Houston", -95.3698, 29.7604], ["Atlanta", -84.388, 33.749],
+        ["Miami", -80.1918, 25.7617], ["Washington DC", -77.0369, 38.9072],
+      ];
+      const nodes = cities.map(([name, lon, lat]) => ({ name, value: [lon, lat], symbolSize: isSmall ? 6 : 9 }));
+      const edges = cities.slice(0, -1).map((c, i) => ({ source: c[0], target: cities[i + 1][0] }));
+      edges.push({ source: cities[cities.length - 1][0], target: cities[0][0] });
+      return {
+        backgroundColor: bg,
+        title: titleCfg || { text: "Geo Graph", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        tooltip: {},
+        geo: {
+          map: "USA", roam: true,
+          itemStyle: { areaColor: theme === "dark" ? "#2a2a45" : "#f3f4f6", borderColor: axisC },
+          label: { show: false },
+        } as any,
+        series: [{
+          type: "graph", coordinateSystem: "geo",
+          data: nodes,
+          edges,
+          edgeSymbol: ["none", "arrow"], edgeSymbolSize: isSmall ? 4 : 6,
+          itemStyle: { color: palette[0] ?? "#6366f1" },
+          lineStyle: { color: palette[0] ?? "#6366f1", opacity: 0.75, curveness: 0.15 },
+          label: { show: !isSmall, position: "right", color: fg, fontFamily: "Inter", fontSize: 10, formatter: "{b}" },
+        } as any],
+        legend: { show: false },
+      } as any;
+    }
+
     // ── GAUGE ─────────────────────────────────────────────────────────────
     case "gauge-simple": {
       const val = datasets[0]?.data[0] ?? 67;
@@ -1675,6 +1716,11 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <path d="M3 6l4-2 4 2 4-2 6 3v13l-6-3-4 2-4-2-4 2V6z" stroke={c} strokeWidth="1.2" fill="none" opacity="0.55" />
       <path d="M7 4v15M11 6v13" stroke={c} strokeWidth="0.9" opacity="0.3" />
       <circle cx="14" cy="11" r="1.6" fill={c} /><circle cx="9" cy="15" r="1.1" fill={c} opacity="0.7" /><circle cx="18" cy="9" r="1.1" fill={c} opacity="0.5" />
+    </>,
+    "geo-graph": <>
+      <path d="M3 6l4-2 4 2 4-2 6 3v13l-6-3-4 2-4-2-4 2V6z" stroke={c} strokeWidth="1.2" fill="none" opacity="0.3" />
+      <path d="M5 13l4-6 5 3 4-5 4 4" stroke={c} strokeWidth="1.3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="5" cy="13" r="1.3" fill={c} /><circle cx="9" cy="7" r="1.3" fill={c} /><circle cx="14" cy="10" r="1.3" fill={c} /><circle cx="18" cy="5" r="1.3" fill={c} /><circle cx="22" cy="9" r="1.3" fill={c} opacity="0.7" />
     </>,
     // ── GAUGE ──
     "gauge-simple": <><path d="M4 15a8 8 0 1 1 16 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M12 15l-3-5" stroke={c} strokeWidth="2" strokeLinecap="round" /></>,
