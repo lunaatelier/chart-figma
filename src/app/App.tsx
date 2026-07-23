@@ -111,6 +111,7 @@ export const ECHARTS_CATALOGUE = [
       { id: "pie-scrollable", label: "Scrollable Legend" },
       { id: "pie-label-adjust", label: "Label Adjust" },
       { id: "pie-referer", label: "Referer" },
+      { id: "pie-browser-proportion", label: "Proportion of Browsers" },
     ],
   },
   {
@@ -140,6 +141,11 @@ export const ECHARTS_CATALOGUE = [
       { id: "heat-cartesian", label: "Cartesian" },
       { id: "heat-calendar", label: "Calendar" },
       { id: "heat-large", label: "Large Data (10K)" },
+    ],
+  },
+  {
+    cat: "Matrix", items: [
+      { id: "matrix-covariance", label: "Covariance Matrix" },
     ],
   },
   {
@@ -174,7 +180,7 @@ export const ECHARTS_CATALOGUE = [
 const STATIC_DEMO_CHARTS = new Set([
   "line-dynamic", "line-aqi",
   "bar-waterfall", "bar-race", "bar-world-pop",
-  "pie-referer",
+  "pie-referer", "pie-browser-proportion",
   "candle-basic", "candle-large",
   "heat-cartesian", "heat-calendar",
   "radar-browsers",
@@ -182,6 +188,7 @@ const STATIC_DEMO_CHARTS = new Set([
   "scatter-distribution", "scatter-single", "scatter-jitter",
   "large-scale-area", "area-rainfall", "line-race",
   "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
+  "matrix-covariance",
 ]);
 // Chart types that only ever read datasets[0] — extra datasets are silently ignored
 const FIRST_DATASET_ONLY_CHARTS = new Set([
@@ -928,6 +935,35 @@ function buildEChartsOption(
       };
     }
 
+    case "pie-browser-proportion": {
+      // roseType:'radius' encodes value as slice length (not just angle) — a second
+      // Nightingale variant alongside pie-rose's roseType:'area', with fixed reference
+      // data instead of the official example's live-fetched browser stats.
+      const browserData = [
+        { name: "Chrome", value: 65.2 },
+        { name: "Safari", value: 18.9 },
+        { name: "Edge", value: 5.1 },
+        { name: "Samsung Internet", value: 2.9 },
+        { name: "Firefox", value: 2.7 },
+        { name: "Opera", value: 1.7 },
+        { name: "UC Browser", value: 0.9 },
+        { name: "IE", value: 0.6 },
+        { name: "Other", value: 2.0 },
+      ];
+      return {
+        backgroundColor: bg, color: palette,
+        title: titleCfg || { text: "Proportion of Browsers", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        legend: { type: "scroll", orient: "vertical", right: 12, top: title ? 52 : 16, bottom: 20, textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 } },
+        tooltip: { trigger: "item", formatter: "{b}: {c}%" },
+        series: [{
+          type: "pie", radius: [10, "72%"], center: ["38%", "55%"], roseType: "radius" as any,
+          data: browserData.map((d, i) => ({ ...d, itemStyle: { color: palette[i % palette.length] } })),
+          label: { show: false },
+          itemStyle: { borderRadius: 3, borderColor: bg, borderWidth: 1.5 },
+        }],
+      };
+    }
+
     // ── SCATTER ───────────────────────────────────────────────────────────
     case "scatter-basic":
       return {
@@ -1133,6 +1169,49 @@ function buildEChartsOption(
         series: [{ name: "Field", type: "heatmap", data: hlData, progressive: 1000, animation: false }],
         legend: { show: false },
       };
+    }
+
+    // ── MATRIX ────────────────────────────────────────────────────────────
+    case "matrix-covariance": {
+      // Symmetric correlation matrix (diagonal = 1) rendered on ECharts 6's `matrix`
+      // coordinate system — a heatmap series plotted against matrix row/col headers
+      // instead of a category cartesian grid.
+      const vars = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA", "NVDA", "META", "JPM"];
+      const n = vars.length;
+      const corr: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        corr[i][i] = 1;
+        for (let j = i + 1; j < n; j++) {
+          const v = +(rand(-100, 100) / 100).toFixed(2);
+          corr[i][j] = v; corr[j][i] = v;
+        }
+      }
+      const cellData: [number, number, number][] = [];
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) cellData.push([j, i, corr[i][j]]);
+      const headerFontSz = isSmall ? 8 : 10;
+      return {
+        backgroundColor: bg,
+        title: titleCfg || { text: "Covariance Matrix", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        tooltip: { formatter: (p: any) => `${vars[p.value[0]]} × ${vars[p.value[1]]}: ${p.value[2]}` },
+        visualMap: {
+          min: -1, max: 1, calculable: true, orient: "horizontal", left: "center", bottom: 4,
+          inRange: { color: ["#3b82f6", bg, palette[3] ?? "#ef4444"] },
+          textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
+        },
+        matrix: {
+          top: title ? 56 : 36, left: isSmall ? 56 : 76, right: isSmall ? 8 : 16, bottom: 40,
+          x: { data: vars, label: { color: fg, fontFamily: "Inter", fontSize: headerFontSz } },
+          y: { data: vars, label: { color: fg, fontFamily: "Inter", fontSize: headerFontSz } },
+          body: { itemStyle: { borderColor: axisC, borderWidth: 1 } },
+        } as any,
+        series: [{
+          type: "heatmap", coordinateSystem: "matrix" as any,
+          data: cellData,
+          label: { show: !isSmall, color: fg, fontFamily: "Inter", fontSize: 9, formatter: (p: any) => Number(p.value[2]).toFixed(2) },
+          itemStyle: { borderColor: bg, borderWidth: 1 },
+        } as any],
+        legend: { show: false },
+      } as any;
     }
 
     // ── GAUGE ─────────────────────────────────────────────────────────────
@@ -1456,6 +1535,7 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     "pie-scrollable": <><circle cx="9" cy="12" r="7" stroke={c} strokeWidth="2" fill="none" /><path d="M9 5a7 7 0 0 1 6 10.5" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><circle cx="19" cy="7" r="1" fill={c} /><circle cx="19" cy="12" r="1" fill={c} /><circle cx="19" cy="17" r="1" fill={c} /></>,
     "pie-label-adjust": <><circle cx="10" cy="12" r="7" stroke={c} strokeWidth="2" fill="none" /><path d="M10 5a7 7 0 0 1 4 12.9" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M16 18l3 1M16.5 6l3-1M4 9l-3-1" stroke={c} strokeWidth="1.1" strokeLinecap="round" opacity="0.6" /></>,
     "pie-referer": <><circle cx="12" cy="12" r="9" stroke={c} strokeWidth="1.6" fill="none" opacity="0.5" /><circle cx="12" cy="12" r="5.2" stroke={c} strokeWidth="1.6" fill="none" opacity="0.5" /><path d="M12 3a9 9 0 0 1 7.8 4.5" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" /><path d="M12 6.8a5.2 5.2 0 0 1 4.3 2.4" stroke={c} strokeWidth="1.8" strokeLinecap="round" fill="none" /></>,
+    "pie-browser-proportion": <polygon points="12,3 17.2,9 18.9,16 12,17 5.9,15.5 6.8,9" fill={c} opacity="0.55" stroke={c} strokeWidth="1.2" strokeLinejoin="round" />,
     // ── SCATTER ──
     "scatter-basic": <>{dots([[5, 17], [10, 8], [15, 13], [19, 6]], 1.6)}</>,
     "scatter-bubble": <><circle cx="6" cy="17" r="2" fill={c} opacity="0.7" /><circle cx="13" cy="9" r="4.5" fill={c} opacity="0.45" /><circle cx="18" cy="15" r="3" fill={c} opacity="0.6" /></>,
@@ -1499,6 +1579,14 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
         const o = [0.2, 0.5, 0.8, 0.35, 0.65, 0.9][(x + y) % 6];
         return <rect key={i} x={2 + x * 3.3} y={2 + y * 3.3} width="2.8" height="2.8" rx="0.3" fill={c} opacity={o} />;
       })}
+    </>,
+    // ── MATRIX ──
+    "matrix-covariance": <>
+      <rect x="3" y="3" width="18" height="18" rx="1" stroke={c} strokeWidth="1.2" opacity="0.4" fill="none" />
+      <line x1="3" y1="8" x2="21" y2="8" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="3" y1="13" x2="21" y2="13" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="3" y1="18" x2="21" y2="18" stroke={c} strokeWidth="1" opacity="0.3" />
+      <line x1="8" y1="3" x2="8" y2="21" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="13" y1="3" x2="13" y2="21" stroke={c} strokeWidth="1" opacity="0.3" /><line x1="18" y1="3" x2="18" y2="21" stroke={c} strokeWidth="1" opacity="0.3" />
+      <rect x="3" y="3" width="5" height="5" fill={c} opacity="1" /><rect x="8" y="8" width="5" height="5" fill={c} opacity="1" /><rect x="13" y="13" width="5" height="5" fill={c} opacity="1" /><rect x="18" y="18" width="3" height="3" fill={c} opacity="1" />
+      <rect x="8" y="3" width="5" height="5" fill={c} opacity="0.4" /><rect x="13" y="3" width="5" height="5" fill={c} opacity="0.2" /><rect x="3" y="8" width="5" height="5" fill={c} opacity="0.4" />
     </>,
     // ── GAUGE ──
     "gauge-simple": <><path d="M4 15a8 8 0 1 1 16 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M12 15l-3-5" stroke={c} strokeWidth="2" strokeLinecap="round" /></>,
