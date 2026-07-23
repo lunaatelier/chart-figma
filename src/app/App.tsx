@@ -511,7 +511,10 @@ function buildEChartsOption(
       return {
         backgroundColor: bg, color: palette, title: titleCfg, tooltip,
         visualMap: { show: false, type: "piecewise", pieces: [{ gt: 0, lte: 50, color: palette[2] ?? "#10b981" }, { gt: 50, lte: 150, color: palette[3] ?? "#f59e0b" }, { gt: 150, lte: 300, color: palette[3] ?? "#ef4444" }], seriesIndex: 0 },
-        grid: { ...grid, bottom: 40 },
+        // markLine value labels ("50"/"150"/"200") render past the grid's right edge at a
+        // fixed default font size regardless of card size — needs more room than the shared
+        // `grid.right` (which can be as tight as 8px), and doesn't shrink at isSmall.
+        grid: withMinRight({ ...grid, bottom: 40 }, 34),
         xAxis: { type: "category", data: xData, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: [{ name: "AQI", type: "line", data: aqiData, smooth: smoothLine, symbol: "none", lineStyle: { width: 2 }, markLine: { silent: true, lineStyle: { color: axisC }, data: [{ yAxis: 50 }, { yAxis: 150 }, { yAxis: 200 }] } }],
