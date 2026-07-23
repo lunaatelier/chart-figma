@@ -101,6 +101,7 @@ export const ECHARTS_CATALOGUE = [
     cat: "Line", items: [
       { id: "line-basic", label: "Basic Line" },
       { id: "line-area-stacked", label: "Stacked Area" },
+      { id: "area-pieces", label: "Area Pieces" },
       { id: "line-bump", label: "Bump Chart" },
       { id: "line-confidence", label: "Confidence Band" },
       { id: "line-step", label: "Step Line" },
@@ -222,8 +223,8 @@ export const ECHARTS_CATALOGUE = [
 
 // Chart types that render fixed preset/random data and ignore Data Input entirely
 const STATIC_DEMO_CHARTS = new Set([
-  "line-dynamic", "line-aqi",
-  "bar-waterfall", "bar-race", "bar-world-pop",
+  "line-dynamic", "line-aqi", "line-confidence", "area-pieces",
+  "bar-waterfall", "bar-race", "bar-world-pop", "bar-animation",
   "pie-referer", "pie-browser-proportion",
   "candle-basic", "candle-large",
   "heat-cartesian", "heat-calendar",
@@ -391,6 +392,70 @@ function buildEChartsOption(
         })),
       };
 
+    case "area-pieces": {
+      const pieceData: [string, number][] = [
+        ["2019-10-10", 200],
+        ["2019-10-11", 560],
+        ["2019-10-12", 750],
+        ["2019-10-13", 580],
+        ["2019-10-14", 250],
+        ["2019-10-15", 300],
+        ["2019-10-16", 450],
+        ["2019-10-17", 300],
+        ["2019-10-18", 100],
+      ];
+      const pieceColor = "rgba(0, 0, 180, 0.4)";
+
+      return {
+        backgroundColor: bg,
+        title: titleCfg,
+        tooltip: { ...tooltip, trigger: "axis" },
+        grid: gridFull,
+        xAxis: {
+          type: "category",
+          boundaryGap: false,
+          data: pieceData.map(([date]) => date),
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+        },
+        yAxis: {
+          type: "value",
+          boundaryGap: [0, "30%"],
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
+          axisLine: { show: false },
+          axisTick: { show: false },
+          splitLine: { lineStyle: { color: axisC } },
+        },
+        visualMap: {
+          type: "piecewise",
+          show: false,
+          dimension: 0,
+          seriesIndex: 0,
+          pieces: [
+            { gt: 1, lt: 3, color: pieceColor },
+            { gt: 5, lt: 7, color: pieceColor },
+          ],
+        },
+        series: [{
+          name: "Area",
+          type: "line",
+          smooth: 0.6,
+          symbol: "none",
+          lineStyle: { color: "#5470C6", width: 5 },
+          markLine: {
+            symbol: ["none", "none"],
+            label: { show: false },
+            lineStyle: { color: "#6B8CFF", type: "dashed", width: 1.5, opacity: 0.9 },
+            data: [{ xAxis: 1 }, { xAxis: 3 }, { xAxis: 5 }, { xAxis: 7 }],
+          },
+          areaStyle: {},
+          data: pieceData,
+        }],
+        legend: { show: false },
+      };
+    }
+
     case "line-bump": {
       const teams = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"];
       const bumData = teams.map((t, i) => {
@@ -407,19 +472,146 @@ function buildEChartsOption(
     }
 
     case "line-confidence": {
-      const base = userVals(0);
-      const upper = base.map(v => +(v + rand(5, 15)).toFixed(1));
-      const lower = base.map(v => +(v - rand(5, 15)).toFixed(1));
+      const confidenceCount = 114;
+      const confidenceDates = Array.from({ length: confidenceCount }, (_, i) => {
+        const date = new Date(Date.UTC(2012, 7, 28 + i));
+        return date.toISOString().slice(0, 10);
+      });
+      const gaussian = (x: number, center: number, width: number, amplitude: number) =>
+        amplitude * Math.exp(-Math.pow((x - center) / width, 2));
+      const confidenceValues = confidenceDates.map((_, i) => {
+        const startup = -1.15 * Math.exp(-i / 3.8);
+        const baseline = -0.015 + Math.sin(i / 7) * 0.018 + Math.sin(i * 1.8) * 0.009;
+        const events =
+          gaussian(i, 31, 1.2, 0.2) +
+          gaussian(i, 53, 1.5, 0.18) +
+          gaussian(i, 56, 1.1, 0.34) -
+          gaussian(i, 45, 2.2, 0.1) -
+          gaussian(i, 61, 3.4, 0.15) +
+          gaussian(i, 113, 0.7, 0.36);
+        return +(startup + baseline + events).toFixed(4);
+      });
+      const confidenceLower = confidenceValues.map((value, i) =>
+        +(value - 0.08 - 1.32 * Math.exp(-i / 4.2) - Math.abs(Math.sin(i / 9)) * 0.025).toFixed(4)
+      );
+      const confidenceUpper = confidenceValues.map((value, i) =>
+        +(value + 0.045 + 0.16 * Math.exp(-i / 5.5) + Math.abs(Math.cos(i / 11)) * 0.018).toFixed(4)
+      );
+      const confidenceOffset = -Math.floor(Math.min(...confidenceLower));
+      const adjustedLower = confidenceLower.map(value => +(value + confidenceOffset).toFixed(4));
+      const bandWidth = confidenceUpper.map((value, i) => +(value - confidenceLower[i]).toFixed(4));
+      const adjustedValues = confidenceValues.map(value => +(value + confidenceOffset).toFixed(4));
+      const confidenceTitle: echarts.TitleComponentOption = titleCfg
+        ? {
+            ...titleCfg,
+            subtext: "Example in MetricsGraphics.js",
+            subtextStyle: { color: theme === "dark" ? "#9ca3af" : "#888", fontFamily: "Inter", fontSize: isSmall ? 10 : 12 },
+          }
+        : {
+            text: "Confidence Band",
+            subtext: "Example in MetricsGraphics.js",
+            left: "center",
+            top: 6,
+            textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" },
+            subtextStyle: { color: theme === "dark" ? "#9ca3af" : "#888", fontFamily: "Inter", fontSize: isSmall ? 10 : 12 },
+          };
+
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid,
-        xAxis: { type: "category", data: userLabels, ...axisTick },
-        yAxis: { type: "value", ...axisTick },
+        backgroundColor: bg,
+        title: confidenceTitle,
+        tooltip: {
+          ...tooltip,
+          trigger: "axis",
+          axisPointer: {
+            type: "cross",
+            animation: false,
+            label: {
+              backgroundColor: theme === "dark" ? "#374151" : "#e5e7eb",
+              borderColor: axisC,
+              borderWidth: 1,
+              color: fg,
+            },
+          },
+          formatter: (params: any) => {
+            const items = Array.isArray(params) ? params : [params];
+            const point = items.find((item: any) => item.seriesName === "Value") ?? items[2] ?? items[0];
+            const dataIndex = point?.dataIndex ?? 0;
+            return `${confidenceDates[dataIndex]}<br/>${(confidenceValues[dataIndex] * 100).toFixed(1)}%`;
+          },
+        },
+        grid: {
+          ...gridFull,
+          top: title ? (isSmall ? 58 : 76) : (isSmall ? 48 : 66),
+        },
+        xAxis: {
+          type: "category",
+          data: confidenceDates,
+          boundaryGap: false,
+          axisLabel: {
+            color: fg,
+            fontFamily: "Inter",
+            fontSize: axisFontSz,
+            hideOverlap: true,
+            formatter: (value: string, index: number) => {
+              if (index === 0) return value;
+              const date = new Date(`${value}T00:00:00Z`);
+              return `${date.getUTCMonth() + 1}-${date.getUTCDate()}`;
+            },
+          },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+          splitLine: { show: false },
+        },
+        yAxis: {
+          type: "value",
+          min: confidenceOffset - 3,
+          max: confidenceOffset + 1,
+          interval: 1,
+          splitNumber: 3,
+          axisLabel: {
+            color: fg,
+            fontFamily: "Inter",
+            fontSize: axisFontSz,
+            formatter: (value: number) => `${Math.round((value - confidenceOffset) * 100)}%`,
+          },
+          axisPointer: {
+            label: {
+              formatter: (params: any) => `${((Number(params.value) - confidenceOffset) * 100).toFixed(1)}%`,
+            },
+          },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+          splitLine: { show: false },
+        },
         series: [
-          { name: "Lower", type: "line", data: lower, lineStyle: { opacity: 0 }, stack: "confidence-band", symbol: "none" },
-          { name: "Upper", type: "line", data: upper.map((v, i) => +(v - lower[i]).toFixed(1)), lineStyle: { opacity: 0 }, areaStyle: { color: palette[0] + "40" }, stack: "confidence-band", symbol: "none" },
-          { name: datasets[0]?.name ?? "Value", type: "line", data: base, smooth: smoothLine, lineStyle: { width: 2.5 }, itemStyle: { color: palette[0] }, symbolSize: 5 },
+          {
+            name: "Lower",
+            type: "line",
+            data: adjustedLower,
+            lineStyle: { opacity: 0 },
+            stack: "confidence-band",
+            symbol: "none",
+          },
+          {
+            name: "U",
+            type: "line",
+            data: bandWidth,
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: theme === "dark" ? "rgba(209,213,219,0.28)" : "#ccc" },
+            stack: "confidence-band",
+            symbol: "none",
+          },
+          {
+            name: "Value",
+            type: "line",
+            data: adjustedValues,
+            showSymbol: false,
+            symbolSize: 6,
+            lineStyle: { color: theme === "dark" ? "#e5e7eb" : "#333", width: 2.5 },
+            itemStyle: { color: "#c23531" },
+          },
         ],
-        legend: { ...legend, data: [datasets[0]?.name ?? "Value"] },
+        legend: { show: false },
       };
     }
 
@@ -511,18 +703,91 @@ function buildEChartsOption(
     }
 
     case "line-aqi": {
-      const aqiData = Array.from({ length: 72 }, () => rand(30, 300));
-      const xData = Array.from({ length: 72 }, (_, i) => `${String(Math.floor(i / 3)).padStart(2, "0")}:${["00", "20", "40"][i % 3]}`);
+      const xData = Array.from({ length: 365 }, (_, i) => {
+        const date = new Date(2014, 0, i + 1);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      });
+      let aqiLevel = 85;
+      const aqiData = xData.map((_, i) => {
+        const seasonal = 72 + Math.cos((i / 365) * Math.PI * 2) * 30;
+        const shortCycle = Math.sin(i / 8) * 26 + Math.sin(i / 23) * 18;
+        const pollutionSpike = random() > 0.94 ? rand(70, 190) : 0;
+        aqiLevel = Math.max(
+          8,
+          Math.min(430, aqiLevel * 0.58 + seasonal * 0.42 + shortCycle * 0.3 + rand(-24, 24) + pollutionSpike),
+        );
+        return Math.round(aqiLevel);
+      });
+      const aqiPieces = [
+        { gt: 0, lte: 50, color: "#93CE07", label: "0 - 50" },
+        { gt: 50, lte: 100, color: "#FBDB0F", label: "50 - 100" },
+        { gt: 100, lte: 150, color: "#FC7D02", label: "100 - 150" },
+        { gt: 150, lte: 200, color: "#FD0100", label: "150 - 200" },
+        { gt: 200, lte: 300, color: "#AA069F", label: "200 - 300" },
+        { gt: 300, color: "#AC3B2A", label: "> 300" },
+      ];
+      const aqiLegendTextWidth = Math.max(...aqiPieces.map(piece => piece.label.length)) * 10 * 0.62;
+      const aqiRightReserve = Math.ceil(aqiLegendTextWidth + 104);
+
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip,
-        visualMap: { show: false, type: "piecewise", pieces: [{ gt: 0, lte: 50, color: palette[2] ?? "#10b981" }, { gt: 50, lte: 150, color: palette[3] ?? "#f59e0b" }, { gt: 150, lte: 300, color: palette[3] ?? "#ef4444" }], seriesIndex: 0 },
-        // markLine value labels ("50"/"150"/"200") render past the grid's right edge at a
-        // fixed default font size regardless of card size — needs more room than the shared
-        // `grid.right` (which can be as tight as 8px), and doesn't shrink at isSmall.
-        grid: withMinRight({ ...grid, bottom: 40 }, 34),
-        xAxis: { type: "category", data: xData, ...axisTick },
+        backgroundColor: bg,
+        title: titleCfg,
+        tooltip: { ...tooltip, trigger: "axis" },
+        grid: {
+          left: isSmall ? 8 : "5%",
+          right: isSmall ? 12 : aqiRightReserve,
+          top: topPad,
+          bottom: isSmall ? 52 : 62,
+          containLabel: true,
+        },
+        dataZoom: [
+          {
+            type: "slider",
+            startValue: "2014-06-01",
+            height: 18,
+            bottom: 8,
+            borderColor: axisC,
+            textStyle: { color: fg, fontFamily: "Inter", fontSize: 10 },
+          },
+          { type: "inside", startValue: "2014-06-01" },
+        ],
+        visualMap: {
+          show: !isSmall,
+          type: "piecewise",
+          top: title ? 76 : 50,
+          right: 8,
+          itemWidth: 24,
+          itemHeight: 14,
+          itemGap: 10,
+          pieces: aqiPieces,
+          outOfRange: { color: "#999" },
+          textStyle: { color: fg, fontFamily: "Inter", fontSize: 10 },
+          seriesIndex: 0,
+        },
+        xAxis: {
+          type: "category",
+          boundaryGap: false,
+          data: xData,
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz, hideOverlap: true },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+        },
         yAxis: { type: "value", ...axisTick },
-        series: [{ name: "AQI", type: "line", data: aqiData, smooth: smoothLine, symbol: "none", lineStyle: { width: 2 }, markLine: { silent: true, lineStyle: { color: axisC }, data: [{ yAxis: 50 }, { yAxis: 150 }, { yAxis: 200 }] } }],
+        series: [{
+          name: "Beijing AQI",
+          type: "line",
+          data: aqiData,
+          showSymbol: false,
+          lineStyle: { width: 2 },
+          markLine: {
+            silent: true,
+            symbol: ["none", "none"],
+            lineStyle: { color: theme === "dark" ? "rgba(255,255,255,0.4)" : "#333", width: 1 },
+            label: { color: fg, fontFamily: "Inter", fontSize: 10 },
+            data: [{ yAxis: 50 }, { yAxis: 100 }, { yAxis: 150 }, { yAxis: 200 }, { yAxis: 300 }],
+          },
+        }],
+        legend: { show: false },
       };
     }
 
@@ -746,36 +1011,66 @@ function buildEChartsOption(
       };
     }
 
-    case "bar-animation":
-      // Re-matched against the official "Animation Delay" example: it colors per-series
-      // (with a legend to tell them apart), not per-bar — our earlier version cycled a
-      // rainbow color per bar, which made the legend meaningless. Its animationDelay is
-      // also much snappier (idx*10, offset by 100ms per series) than what we had (idx*80,
-      // offset by 300ms) — that stretched out to 8+ seconds for the last bar instead of
-      // playing as one quick staggered sweep. Toolbox (stack toggle/data view/save image)
-      // was missing entirely, matching this example's other headline feature.
+    case "bar-animation": {
+      // The official Animation Delay example uses 100 formula-generated categories. The
+      // two oscillating series make the staggered entrance readable while their baseline
+      // rises from roughly -50 to 120 across A0–A99.
+      const animationLabels = Array.from({ length: 100 }, (_, i) => `A${i}`);
+      const animationData1 = animationLabels.map((_, i) =>
+        +((Math.sin(i / 5) * (i / 5 - 10) + i / 6) * 5).toFixed(2)
+      );
+      const animationData2 = animationLabels.map((_, i) =>
+        +((Math.cos(i / 5) * (i / 5 - 10) + i / 6) * 5).toFixed(2)
+      );
+      const seriesColors = ["#5070DD", "#B6D634"];
+
       return {
-        backgroundColor: bg, color: palette, title: titleCfg,
-        legend: { ...legend, data: datasets.map(d => d.name) },
-        // Hidden at isSmall — the top-right toolbox icons collide with the centered title
-        // text once the card is narrow enough (~300px) for the title to span most of it.
-        toolbox: {
-          show: !isSmall,
-          feature: { magicType: { type: ["stack"] }, dataView: {}, saveAsImage: { pixelRatio: 2 } },
-          iconStyle: { borderColor: fg },
+        backgroundColor: bg,
+        color: seriesColors,
+        title: titleCfg,
+        legend: { ...legendAxisSafe, data: ["bar", "bar2"] },
+        tooltip: { ...tooltip, axisPointer: { type: "shadow" } },
+        grid: { ...gridFull, bottom: isSmall ? 40 : 52 },
+        xAxis: {
+          type: "category",
+          data: animationLabels,
+          splitLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz, interval: isSmall ? 9 : 3 },
+          axisLine: { lineStyle: { color: fg } },
         },
-        tooltip, grid,
-        xAxis: { type: "category", data: userLabels, splitLine: { show: false }, ...axisTick },
-        yAxis: { type: "value", ...axisTick },
-        series: datasets.map((ds, i) => ({
-          name: ds.name, type: "bar", data: ds.data,
-          itemStyle: { color: palette[i % palette.length], borderRadius: [4, 4, 0, 0] },
-          barMaxWidth: 40,
-          emphasis: { focus: "series" as const },
-          animationDelay: (idx: number) => idx * 10 + i * 100,
-        })),
-        animationEasing: "elasticOut", animationDelayUpdate: (idx: number) => idx * 5,
+        yAxis: {
+          type: "value",
+          min: -60,
+          max: 150,
+          interval: 30,
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
+          axisLine: { show: false },
+          axisTick: { show: false },
+          splitLine: { lineStyle: { color: axisC } },
+        },
+        series: [
+          {
+            name: "bar",
+            type: "bar",
+            data: animationData1,
+            itemStyle: { color: seriesColors[0] },
+            emphasis: { focus: "series" as const },
+            animationDelay: (idx: number) => idx * 10,
+          },
+          {
+            name: "bar2",
+            type: "bar",
+            data: animationData2,
+            itemStyle: { color: seriesColors[1] },
+            emphasis: { focus: "series" as const },
+            animationDelay: (idx: number) => idx * 10 + 100,
+          },
+        ],
+        animationEasing: "elasticOut",
+        animationDelayUpdate: (idx: number) => idx * 5,
       };
+    }
 
     case "bar-brush":
       return {
@@ -1485,18 +1780,25 @@ function buildEChartsOption(
 
     // ── GAUGE ─────────────────────────────────────────────────────────────
     case "gauge-simple": {
-      const val = datasets[0]?.data[0] ?? 67;
+      const val = datasets[0]?.data[0] ?? 50;
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
+        tooltip: { formatter: "{a} <br/>{b} : {c}%" },
         series: [{
-          type: "gauge", startAngle: 200, endAngle: -20, min: 0, max: 100,
-          axisLine: { lineStyle: { width: 20, color: [[0.3, palette[0] + "88"], [0.7, palette[0] + "BB"], [1, palette[0]]] } },
-          pointer: { itemStyle: { color: palette[0] } },
-          axisTick: { distance: -24, length: 6, lineStyle: { color: "#fff", width: 2 } },
-          splitLine: { distance: -28, length: 14, lineStyle: { color: "#fff", width: 3 } },
-          axisLabel: { color: fg, distance: 4, fontSize: 11, fontFamily: "Inter" },
-          detail: { valueAnimation: true, color: fg, fontSize: 26, fontFamily: "Inter", fontWeight: "bold", offsetCenter: [0, "70%"] },
-          data: [{ value: val, name: datasets[0]?.name ?? "Score", title: { color: fg, fontFamily: "Inter", offsetCenter: [0, "90%"] } }],
+          name: "Pressure",
+          type: "gauge",
+          progress: { show: true },
+          itemStyle: { color: palette[0] },
+          axisLabel: { color: fg, fontSize: isSmall ? 9 : 11, fontFamily: "Inter" },
+          title: { color: fg, fontSize: isSmall ? 11 : 14, fontFamily: "Inter" },
+          detail: {
+            valueAnimation: true,
+            formatter: "{value}",
+            color: fg,
+            fontSize: isSmall ? 20 : 28,
+            fontFamily: "Inter",
+          },
+          data: [{ value: val, name: "SCORE" }],
         }],
         legend: { show: false },
       };
@@ -1753,6 +2055,7 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     // ── LINE ──
     "line-basic": <><path d="M3 17l4-8 4 4 4-6 4 4" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" /><circle cx="3" cy="17" r="1.3" fill={c} /><circle cx="19" cy="11" r="1.3" fill={c} /></>,
     "line-area-stacked": <><path d="M3 19l4-4 4 2 4-3 4 2v5H3z" fill={c} opacity="0.55" /><path d="M3 14l4-6 4 3 4-5 4 3v9l-4-2-4 3-4-2-4 4z" fill={c} opacity="0.25" /><path d="M3 14l4-6 4 3 4-5 4 3" stroke={c} strokeWidth="1.6" strokeLinecap="round" fill="none" /></>,
+    "area-pieces": <><path d="M3 17l4-9 4 4 4-7 6 8v7H3z" fill={c} opacity="0.18" /><path d="M7 8l4 4v8H7zM15 5l4 5v10h-4z" fill={c} opacity="0.5" /><path d="M3 17l4-9 4 4 4-7 6 8" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" /><path d="M7 4v17M11 4v17M15 4v17M19 4v17" stroke={c} strokeWidth="0.8" opacity="0.35" /></>,
     "line-bump": <><path d="M4 5c4 3 4 9 16 14" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M20 5c-4 3-4 9-16 14" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.55" /></>,
     "line-confidence": <><path d="M3 14c5-8 13-8 18 0" stroke={c} strokeWidth="6" strokeLinecap="round" opacity="0.22" fill="none" /><path d="M3 14c5-8 13-8 18 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
     "line-step": <path d="M3 18h4v-4h4v-3h4v-5h4v3h2" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />,
@@ -1955,17 +2258,70 @@ const SVG_POINT_LIMIT = 3000;
 function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.EChartsOption; truncated: boolean; originalCount: number } {
   let truncated = false;
   let originalCount = 0;
+  let nextXAxis = option.xAxis;
+  let nextYAxis = option.yAxis;
   const seriesArr = Array.isArray(option.series) ? option.series : option.series ? [option.series] : [];
   const newSeries = seriesArr.map((s: any) => {
     if (Array.isArray(s.data) && s.data.length > SVG_POINT_LIMIT) {
       truncated = true;
       originalCount = Math.max(originalCount, s.data.length);
+
+      // A heatmap is a 2D grid, so linear "every Nth point" sampling creates diagonal
+      // stripes whenever the row length is not divisible by N. Sample both axes instead
+      // and replace their category lists so the remaining cells still form a solid grid.
+      if (
+        s.type === "heatmap" &&
+        !Array.isArray(option.xAxis) &&
+        !Array.isArray(option.yAxis) &&
+        Array.isArray((option.xAxis as any)?.data) &&
+        Array.isArray((option.yAxis as any)?.data) &&
+        s.data.every((point: unknown) => Array.isArray(point) && point.length >= 3)
+      ) {
+        const xData = (option.xAxis as any).data as unknown[];
+        const yData = (option.yAxis as any).data as unknown[];
+        const axisStep = Math.max(1, Math.ceil(Math.sqrt(s.data.length / SVG_POINT_LIMIT)));
+        const sampledX = xData.filter((_: unknown, i: number) => i % axisStep === 0);
+        const sampledY = yData.filter((_: unknown, i: number) => i % axisStep === 0);
+        const xIndex = new Map(sampledX.map((value, i) => [String(value), i]));
+        const yIndex = new Map(sampledY.map((value, i) => [String(value), i]));
+        const sampledData = s.data
+          .filter((point: unknown[]) =>
+            xIndex.has(String(point[0])) && yIndex.has(String(point[1]))
+          )
+          // Numeric category coordinates are interpreted as ordinal indices by ECharts.
+          // Remap the retained source coordinates to the compact sampled axes so every
+          // row and column is filled instead of leaving alternating gaps.
+          .map((point: unknown[]) => [
+            xIndex.get(String(point[0])),
+            yIndex.get(String(point[1])),
+            ...point.slice(2),
+          ]);
+
+        nextXAxis = { ...(option.xAxis as any), data: sampledX };
+        nextYAxis = { ...(option.yAxis as any), data: sampledY };
+        return {
+          ...s,
+          data: sampledData,
+          progressive: 0,
+          animation: false,
+        };
+      }
+
       const step = Math.ceil(s.data.length / SVG_POINT_LIMIT);
-      return { ...s, data: s.data.filter((_: unknown, i: number) => i % step === 0) };
+      return {
+        ...s,
+        data: s.data.filter((_: unknown, i: number) => i % step === 0),
+        progressive: 0,
+        animation: false,
+      };
     }
     return s;
   });
-  return { option: truncated ? { ...option, series: newSeries } : option, truncated, originalCount };
+  return {
+    option: truncated ? { ...option, xAxis: nextXAxis, yAxis: nextYAxis, series: newSeries } : option,
+    truncated,
+    originalCount,
+  };
 }
 
 // ─── ECharts Mount Hook ───────────────────────────────────────────────────────
