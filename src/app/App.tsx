@@ -188,6 +188,7 @@ export const ECHARTS_CATALOGUE = [
     cat: "Geo / Map", items: [
       { id: "map-usa-population", label: "USA Population" },
       { id: "geo-graph", label: "Geo Graph" },
+      { id: "matrix-mini-bar-geo", label: "Mini Bars + Geo Matrix" },
     ],
   },
   {
@@ -230,11 +231,11 @@ const STATIC_DEMO_CHARTS = new Set([
   "scatter-distribution", "scatter-single", "scatter-jitter",
   "large-scale-area", "area-rainfall", "line-race",
   "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
-  "matrix-covariance", "map-usa-population", "geo-graph",
+  "matrix-covariance", "map-usa-population", "geo-graph", "matrix-mini-bar-geo",
 ]);
 // Chart types that need an async-loaded map registered via echarts.registerMap() before
 // buildEChartsOption() can safely reference it (App gates rendering on load status)
-const MAP_CHART_IDS = new Set(["map-usa-population", "geo-graph"]);
+const MAP_CHART_IDS = new Set(["map-usa-population", "geo-graph", "matrix-mini-bar-geo"]);
 // Chart types that only ever read datasets[0] — extra datasets are silently ignored
 const FIRST_DATASET_ONLY_CHARTS = new Set([
   "pie-basic", "pie-doughnut", "pie-half", "pie-rose", "pie-label-adjust",
@@ -1337,6 +1338,76 @@ function buildEChartsOption(
       } as any;
     }
 
+    case "matrix-mini-bar-geo": {
+      // Official example ("Mini Bars and Geo in Matrix") highlights Swiss cantons in a
+      // per-row mini geo cell; reinterpreted over the shared `USA` map instead of a second
+      // GeoJSON asset. Each row = one US state, with per-metric mini bar-chart cells (this
+      // year vs. last year, laid out via grid/xAxis/yAxis with coordinateSystem:'matrix')
+      // and a mini geo cell highlighting that state. `matrix`+per-cell `grid`/`geo` with
+      // coord:[col,row] is an ECharts 6.0 feature — types only expose matrixIndex/matrixId,
+      // but the runtime API matches the official example (confirmed via echarts 6.1.0 docs).
+      const regions = ["California", "Texas", "New York", "Florida", "Washington", "Colorado", "Georgia", "Illinois"];
+      const metrics = ["Revenue", "Growth"];
+      const years = ["2024", "2023"];
+      const colHeaders = ["State", ...metrics, "Location"];
+      const regionColIdx = 0;
+      const geoColIdx = colHeaders.length - 1;
+      const barColors = [palette[0] ?? "#6366f1", palette[1] ?? "#f59e0b"];
+
+      const dataByYear: Record<string, number[][]> = {};
+      years.forEach(y => { dataByYear[y] = metrics.map(() => regions.map(() => rand(20, 200))); });
+
+      const matrixBody: any[] = regions.map((name, r) => ({ value: name, coord: [regionColIdx, r] }));
+      const gridArr: any[] = [], xAxisArr: any[] = [], yAxisArr: any[] = [], seriesArr: any[] = [];
+
+      metrics.forEach((_, mi) => {
+        const colIdx = 1 + mi;
+        const maxVal = Math.max(...years.flatMap(y => dataByYear[y][mi]));
+        regions.forEach((_r, r) => {
+          const id = `mini-bar-${colIdx}-${r}`;
+          gridArr.push({ id, coordinateSystem: "matrix", coord: [colIdx, r], top: "20%", bottom: "20%" });
+          xAxisArr.push({ id, gridId: id, type: "value", min: 0, max: maxVal, scale: false, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false } });
+          yAxisArr.push({ id, gridId: id, type: "category", boundaryGap: false, inverse: true, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false } });
+          years.forEach((y, yi) => {
+            seriesArr.push({
+              type: "bar", name: y, xAxisId: id, yAxisId: id,
+              barMinHeight: 2, barGap: "40%", barWidth: "35%",
+              itemStyle: { color: barColors[yi % barColors.length] },
+              label: !isSmall ? { show: true, fontSize: 8, color: fg, position: "insideLeft" } : { show: false },
+              data: [[dataByYear[y][mi][r], ""]],
+            });
+          });
+        });
+      });
+
+      const geoArr: any[] = regions.map((name, r) => ({
+        id: `mini-geo-${r}`, map: "USA", animation: false,
+        coordinateSystem: "matrix", coord: [geoColIdx, r],
+        roam: false, selectedMode: false, tooltip: { show: false },
+        itemStyle: { areaColor: theme === "dark" ? "#2a2a45" : "#e5e7eb", borderColor: axisC },
+        regions: [{ name, itemStyle: { areaColor: palette[0] ?? "#6366f1" } }],
+      }));
+
+      return {
+        backgroundColor: bg,
+        title: titleCfg || { text: "Mini Bars and Geo in Matrix", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        tooltip: {},
+        legend: { data: years, top: title ? topPad - 8 : 8, right: 12, textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 10 : 12 } },
+        matrix: {
+          top: title ? topPad + 16 : 36, left: isSmall ? 4 : 12, right: isSmall ? 4 : 12, bottom: 12,
+          x: {
+            levelSize: isSmall ? 20 : 28,
+            data: colHeaders.map((h, i) => ({ value: h, size: i === geoColIdx ? "20%" : i === regionColIdx ? (isSmall ? 64 : 96) : undefined })),
+            itemStyle: { color: theme === "dark" ? "#26263f" : "#f0f4ff" },
+            label: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 9 : 11, fontWeight: "bold" },
+          },
+          y: { data: regions.map(() => "_"), show: false },
+          body: { data: matrixBody, itemStyle: { borderColor: axisC, borderWidth: 1 }, label: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 9 : 11 } },
+        } as any,
+        grid: gridArr, xAxis: xAxisArr, yAxis: yAxisArr, geo: geoArr, series: seriesArr,
+      } as any;
+    }
+
     // ── GAUGE ─────────────────────────────────────────────────────────────
     case "gauge-simple": {
       const val = datasets[0]?.data[0] ?? 67;
@@ -1721,6 +1792,13 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <path d="M3 6l4-2 4 2 4-2 6 3v13l-6-3-4 2-4-2-4 2V6z" stroke={c} strokeWidth="1.2" fill="none" opacity="0.3" />
       <path d="M5 13l4-6 5 3 4-5 4 4" stroke={c} strokeWidth="1.3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="5" cy="13" r="1.3" fill={c} /><circle cx="9" cy="7" r="1.3" fill={c} /><circle cx="14" cy="10" r="1.3" fill={c} /><circle cx="18" cy="5" r="1.3" fill={c} /><circle cx="22" cy="9" r="1.3" fill={c} opacity="0.7" />
+    </>,
+    "matrix-mini-bar-geo": <>
+      <rect x="2" y="3" width="20" height="18" rx="1" stroke={c} strokeWidth="1.1" opacity="0.35" fill="none" />
+      <line x1="2" y1="8" x2="22" y2="8" stroke={c} strokeWidth="0.9" opacity="0.3" />
+      <line x1="9" y1="3" x2="9" y2="21" stroke={c} strokeWidth="0.9" opacity="0.3" /><line x1="15" y1="3" x2="15" y2="21" stroke={c} strokeWidth="0.9" opacity="0.3" />
+      <rect x="10.5" y="10.5" width="3" height="2.5" fill={c} opacity="0.9" /><rect x="10.5" y="14" width="4.5" height="2.5" fill={c} opacity="0.6" />
+      <circle cx="18" cy="14" r="3" stroke={c} strokeWidth="1" fill="none" opacity="0.6" /><circle cx="18" cy="14" r="1.1" fill={c} />
     </>,
     // ── GAUGE ──
     "gauge-simple": <><path d="M4 15a8 8 0 1 1 16 0" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M12 15l-3-5" stroke={c} strokeWidth="2" strokeLinecap="round" /></>,
