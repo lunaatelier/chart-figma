@@ -747,15 +747,32 @@ function buildEChartsOption(
     }
 
     case "bar-animation":
+      // Re-matched against the official "Animation Delay" example: it colors per-series
+      // (with a legend to tell them apart), not per-bar — our earlier version cycled a
+      // rainbow color per bar, which made the legend meaningless. Its animationDelay is
+      // also much snappier (idx*10, offset by 100ms per series) than what we had (idx*80,
+      // offset by 300ms) — that stretched out to 8+ seconds for the last bar instead of
+      // playing as one quick staggered sweep. Toolbox (stack toggle/data view/save image)
+      // was missing entirely, matching this example's other headline feature.
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid: gridFull,
-        xAxis: { type: "category", data: userLabels, ...axisTick },
+        backgroundColor: bg, color: palette, title: titleCfg,
+        legend: { ...legend, data: datasets.map(d => d.name) },
+        // Hidden at isSmall — the top-right toolbox icons collide with the centered title
+        // text once the card is narrow enough (~300px) for the title to span most of it.
+        toolbox: {
+          show: !isSmall,
+          feature: { magicType: { type: ["stack"] }, dataView: {}, saveAsImage: { pixelRatio: 2 } },
+          iconStyle: { borderColor: fg },
+        },
+        tooltip, grid,
+        xAxis: { type: "category", data: userLabels, splitLine: { show: false }, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: datasets.map((ds, i) => ({
-          name: ds.name, type: "bar", data: ds.data.map((v, j) => ({ value: v, itemStyle: { color: palette[(i + j) % palette.length] } })),
+          name: ds.name, type: "bar", data: ds.data,
+          itemStyle: { color: palette[i % palette.length], borderRadius: [4, 4, 0, 0] },
+          barMaxWidth: 40,
           emphasis: { focus: "series" as const },
-          animationDelay: (idx: number) => idx * 80 + i * 300,
-          barMaxWidth: 40, itemStyle: { borderRadius: [4, 4, 0, 0] },
+          animationDelay: (idx: number) => idx * 10 + i * 100,
         })),
         animationEasing: "elasticOut", animationDelayUpdate: (idx: number) => idx * 5,
       };
