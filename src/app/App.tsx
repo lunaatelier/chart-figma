@@ -5,6 +5,56 @@ import { ChevronDown, ChevronUp, Plus, X, Trash2, Download, RefreshCw, Shuffle, 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type SizePreset = "S" | "M" | "L" | "Custom";
 interface Dataset { id: string; name: string; data: number[]; color: string; }
+interface CategoryChartInput { labels: string[]; datasets: Dataset[]; title: string; }
+interface XYPoint { x: number; y: number; }
+interface XYZPoint extends XYPoint { size: number; }
+interface XYSeries { id: string; name: string; points: XYPoint[]; }
+interface XYZSeries { id: string; name: string; points: XYZPoint[]; }
+interface RangePoint { label: string; value: number; lower: number; upper: number; }
+interface OHLCPoint { date: string; open: number; close: number; low: number; high: number; }
+interface MatrixCell { x: string; y: string; value: number; }
+interface DateValuePoint { date: string; value: number; }
+interface HierarchyRow { id: string; name: string; parentId: string; value: number; }
+interface NetworkNode { id: string; name: string; category: string; }
+interface NetworkLink { id: string; source: string; target: string; value: number; }
+interface GeoRegionRow { name: string; value: number; secondary: number; }
+interface GeoRoutePoint { name: string; longitude: number; latitude: number; }
+interface GeneratorSettings {
+  seed: number;
+  heatWidth: number;
+  heatHeight: number;
+  lineGrid: number;
+  lineSpan: number;
+  areaPoints: number;
+  areaVolatility: number;
+}
+interface SpecialChartData {
+  scatter: XYSeries[];
+  bubble: XYZSeries[];
+  confidence: RangePoint[];
+  candleBasic: OHLCPoint[];
+  candleLarge: OHLCPoint[];
+  cartesianHeatmap: MatrixCell[];
+  covarianceMatrix: MatrixCell[];
+  singleAxisScatter: MatrixCell[];
+  jitterScatter: MatrixCell[];
+  calendarHeatmap: DateValuePoint[];
+  hierarchy: HierarchyRow[];
+  sankeyNodes: NetworkNode[];
+  sankeyLinks: NetworkLink[];
+  graphNodes: NetworkNode[];
+  graphLinks: NetworkLink[];
+  geoRegions: GeoRegionRow[];
+  geoRoute: GeoRoutePoint[];
+  generator: GeneratorSettings;
+}
+type ChartDataEditorKind = "preset" | "category-series" | "single-value" | "multi-value" | "xy" | "xyz" | "range" | "ohlc" | "matrix" | "calendar" | "hierarchy" | "network" | "geo" | "geo-route" | "generator";
+type ChartColorPolicy = "series" | "semantic" | "gradient" | "official-fixed";
+interface ChartPolicy {
+  dataEditor: ChartDataEditorKind;
+  colorPolicy: ChartColorPolicy;
+  presetReason?: string;
+}
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
 function hexToHsl(hex: string) {
@@ -90,6 +140,89 @@ function createSeededRand(key: string) {
   return { random, rand };
 }
 
+function createDefaultCategoryInput(): CategoryChartInput {
+  return {
+    title: "Monthly Revenue Growth 2024",
+    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"],
+    datasets: [
+      { id: "1", name: "Dataset 1", data: [65, 59, 80, 81, 56, 72, 68], color: "#6366F1" },
+      { id: "2", name: "Dataset 2", data: [40, 75, 55, 62, 88, 48, 77], color: "#f59e0b" },
+    ],
+  };
+}
+
+function createAQIInput(): CategoryChartInput {
+  const { rand } = createSeededRand("line-aqi-input");
+  const start = new Date(Date.UTC(2014, 5, 1));
+  const labels = Array.from({ length: 180 }, (_, index) => {
+    const date = new Date(start);
+    date.setUTCDate(date.getUTCDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
+  const values = labels.map((_, index) => {
+    const seasonal = 42 * Math.sin(index / 11) + 24 * Math.sin(index / 3.7);
+    const spike = index % 29 === 8 ? rand(150, 250) : index % 41 === 19 ? rand(90, 170) : 0;
+    return Math.max(12, Math.round(92 + seasonal + rand(-38, 48) + spike));
+  });
+  return {
+    title: "Beijing AQI",
+    labels,
+    datasets: [{ id: "aqi-1", name: "Beijing AQI", data: values, color: "#FC7D02" }],
+  };
+}
+
+function createRainfallInput(): CategoryChartInput {
+  const { random } = createSeededRand("area-rainfall-input");
+  const start = new Date(Date.UTC(2009, 7, 29));
+  const labels = Array.from({ length: 144 }, (_, index) => {
+    const date = new Date(start);
+    date.setUTCHours(date.getUTCHours() + index * 4);
+    return `${date.getUTCFullYear()}/${date.getUTCMonth() + 1}/${date.getUTCDate()}\n${date.getUTCHours()}:00`;
+  });
+  let flow = 0.42;
+  const rainfall = labels.map((_, index) => {
+    const storm = index % 37 >= 25 && index % 37 <= 29;
+    return +(storm ? (0.35 + random() * 4.8) : random() < 0.12 ? random() * 0.24 : 0).toFixed(3);
+  });
+  const flowData = rainfall.map((rain, index) => {
+    const priorRain = rainfall[Math.max(0, index - 1)] + rainfall[Math.max(0, index - 2)] * 0.5;
+    flow = Math.max(0.18, flow * 0.94 + 0.035 + priorRain * 0.12 + Math.sin(index / 13) * 0.018);
+    return +flow.toFixed(3);
+  });
+  return {
+    title: "Rainfall and Flow Relationship",
+    labels,
+    datasets: [
+      { id: "rain-flow", name: "Flow", data: flowData, color: "#5470C6" },
+      { id: "rain-rainfall", name: "Rainfall", data: rainfall, color: "#91CC75" },
+    ],
+  };
+}
+
+function createNegativeBarInput(): CategoryChartInput {
+  return {
+    title: "Bar Chart with Negative Value",
+    labels: ["ten", "nine", "eight", "seven", "six", "five", "four", "three", "two", "one"],
+    datasets: [{
+      id: "negative-cost",
+      name: "Cost",
+      data: [-0.07, -0.09, 0.2, 0.44, -0.23, 0.08, -0.17, 0.47, -0.36, 0.18],
+      color: "#5470C6",
+    }],
+  };
+}
+
+function createCategoryInputForChart(chartId: string): CategoryChartInput {
+  if (chartId === "line-aqi") return createAQIInput();
+  if (chartId === "area-rainfall") return createRainfallInput();
+  if (chartId === "bar-negative") return createNegativeBarInput();
+  const input = createDefaultCategoryInput();
+  if (chartId === "scatter-single") return { ...input, title: "Scatter on Single Axis" };
+  if (chartId === "lines-ny") return { ...input, title: "New York Streets — Large Lines" };
+  if (chartId === "treemap-basic") return { ...input, title: "Gradient Mapping" };
+  return input;
+}
+
 // ─── Size Presets ─────────────────────────────────────────────────────────────
 const SIZE_PRESETS: Record<SizePreset, { w: number; h: number }> = {
   S: { w: 300, h: 200 }, M: { w: 800, h: 500 }, L: { w: 1200, h: 700 }, Custom: { w: 800, h: 500 },
@@ -107,9 +240,6 @@ export const ECHARTS_CATALOGUE = [
       { id: "line-step", label: "Step Line" },
       { id: "line-area-time", label: "Area + Time" },
       { id: "line-multiple-x", label: "Multiple X Axes" },
-      { id: "line-rainfall", label: "Rainfall vs Evaporation" },
-      { id: "line-datazoom", label: "DataZoom" },
-      { id: "line-dynamic", label: "Dynamic Data" },
       { id: "line-aqi", label: "Beijing AQI" },
       { id: "large-scale-area", label: "Large Scale Area" },
       { id: "area-rainfall", label: "Rainfall" },
@@ -195,7 +325,7 @@ export const ECHARTS_CATALOGUE = [
   {
     cat: "Gauge", items: [
       { id: "gauge-simple", label: "Simple" },
-      { id: "gauge-speed", label: "Speed" },
+      { id: "gauge-speed", label: "Stage Speed" },
       { id: "gauge-progress", label: "Progress" },
     ],
   },
@@ -216,16 +346,18 @@ export const ECHARTS_CATALOGUE = [
     cat: "Special", items: [
       { id: "pictorial-bar", label: "Pictorial Bar" },
       { id: "share-dataset", label: "Share Dataset" },
-      { id: "lines-synthetic", label: "Synthetic Large Lines" },
+      { id: "lines-ny", label: "New York Streets" },
     ],
   },
 ];
 
-// Chart types that render fixed preset/random data and ignore Data Input entirely
-const STATIC_DEMO_CHARTS = new Set([
-  "line-dynamic", "line-aqi", "line-confidence", "area-pieces",
+// Charts whose option builders need a deterministic random source. This is intentionally
+// separate from PRESET_DATA_CHARTS: reproducible generated data and editability are
+// different concerns, even though the two sets still overlap during the migration.
+const SEEDED_DEMO_CHARTS = new Set([
+  "line-aqi", "line-confidence", "area-pieces", "line-bump",
   "bar-waterfall", "bar-race", "bar-world-pop", "bar-animation",
-  "pie-referer", "pie-browser-proportion",
+  "pie-referer", "pie-browser-proportion", "pie-scrollable",
   "candle-basic", "candle-large",
   "heat-cartesian", "heat-calendar",
   "radar-browsers",
@@ -234,34 +366,109 @@ const STATIC_DEMO_CHARTS = new Set([
   "large-scale-area", "area-rainfall", "line-race",
   "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
   "matrix-covariance", "map-usa-population", "geo-graph", "matrix-mini-bar-geo",
-  "lines-synthetic",
+  "lines-ny",
 ]);
+// Phase 1: charts that still use a preset/generator instead of one of the implemented
+// editors. Later phases replace entries here with range/OHLC/matrix/network editors.
+const PHASE_TWO_EDITABLE_CHARTS = new Set(["line-confidence", "candle-basic", "candle-large"]);
+const PHASE_THREE_EDITABLE_CHARTS = new Set([
+  "heat-cartesian", "heat-calendar", "matrix-covariance",
+  "tree-lr", "treemap-sunburst",
+  "sankey-basic", "sankey-gradient",
+  "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
+  "map-usa-population", "geo-graph", "matrix-mini-bar-geo",
+]);
+const PHASE_FOUR_EDITABLE_CHARTS = new Set(["heat-large", "lines-ny", "large-scale-area"]);
+const PHASE_FIVE_EDITABLE_CHARTS = new Set([
+  "line-aqi", "area-pieces", "line-bump", "area-rainfall", "line-race",
+  "bar-waterfall", "bar-race", "bar-world-pop", "bar-animation",
+  "pie-referer", "pie-browser-proportion", "pie-scrollable",
+  "radar-browsers", "radar-aqi",
+  "scatter-distribution", "scatter-single", "scatter-jitter",
+]);
+const PRESET_DATA_CHARTS = new Set([...SEEDED_DEMO_CHARTS].filter(id =>
+  !PHASE_TWO_EDITABLE_CHARTS.has(id) &&
+  !PHASE_THREE_EDITABLE_CHARTS.has(id) &&
+  !PHASE_FOUR_EDITABLE_CHARTS.has(id) &&
+  !PHASE_FIVE_EDITABLE_CHARTS.has(id)
+));
 // Chart types that need an async-loaded map registered via echarts.registerMap() before
 // buildEChartsOption() can safely reference it (App gates rendering on load status)
 const MAP_CHART_IDS = new Set(["map-usa-population", "geo-graph", "matrix-mini-bar-geo"]);
 // Chart types that only ever read datasets[0] — extra datasets are silently ignored
 const FIRST_DATASET_ONLY_CHARTS = new Set([
+  "area-pieces", "line-area-time", "line-aqi",
+  "bar-background", "bar-negative", "bar-waterfall",
   "pie-basic", "pie-doughnut", "pie-half", "pie-rose", "pie-label-adjust",
-  "treemap-basic", "funnel-basic", "pictorial-bar",
+  "pie-scrollable", "pie-referer", "pie-browser-proportion",
+  "funnel-basic", "pictorial-bar",
   "bar-encode", "bar-polar-round",
+]);
+// These comparison charts intentionally render exactly two differently encoded series.
+// Capping the editor prevents extra inputs from appearing only in the legend.
+const TWO_DATASET_CHARTS = new Set([
+  "line-multiple-x", "area-rainfall", "bar-mixed", "bar-animation",
+]);
+const SMOOTHABLE_CHARTS = new Set([
+  "line-basic", "line-area-stacked", "area-pieces", "line-bump", "line-confidence",
+  "line-area-time", "line-multiple-x", "line-race", "bar-mixed", "bar-multi-y", "share-dataset",
 ]);
 // Gauge charts read a single number (data[0]), not the full label/value grid
 const SINGLE_VALUE_CHARTS = new Set(["gauge-simple", "gauge-speed"]);
 const MULTI_SINGLE_VALUE_CHARTS = new Set(["gauge-progress"]);
 // Charts where the shared `labels` state feeds the Y axis (category) instead of X — panel copy should flip
 const Y_AXIS_CATEGORY_CHARTS = new Set(["bar-negative", "bar-horizontal", "pictorial-bar"]);
+const OFFICIAL_CATEGORY_SAMPLE_CHARTS = new Set(["line-aqi", "area-rainfall", "bar-negative"]);
 
-// ─── Sample Data Generators ───────────────────────────────────────────────────
-function genDates(count: number, startYear = 2024) {
-  const dates: string[] = [];
-  let d = new Date(startYear, 0, 1);
-  for (let i = 0; i < count; i++) {
-    dates.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-    d.setDate(d.getDate() + 1);
-  }
-  return dates;
+const CHART_POLICY_OVERRIDES: Partial<Record<string, Partial<ChartPolicy>>> = {
+  "line-confidence": { dataEditor: "range", colorPolicy: "series" },
+  "scatter-basic": { dataEditor: "xy", colorPolicy: "series" },
+  "scatter-bubble": { dataEditor: "xyz", colorPolicy: "series" },
+  "scatter-distribution": { dataEditor: "xy", colorPolicy: "series" },
+  "scatter-single": { dataEditor: "matrix", colorPolicy: "series" },
+  "scatter-jitter": { dataEditor: "matrix", colorPolicy: "series" },
+  "line-aqi": { colorPolicy: "official-fixed" },
+  "radar-aqi": { colorPolicy: "semantic" },
+  "candle-basic": { dataEditor: "ohlc", colorPolicy: "semantic" },
+  "candle-large": { dataEditor: "ohlc", colorPolicy: "semantic" },
+  "heat-cartesian": { dataEditor: "matrix", colorPolicy: "gradient" },
+  "heat-calendar": { dataEditor: "calendar", colorPolicy: "gradient" },
+  "heat-large": { dataEditor: "generator", colorPolicy: "gradient" },
+  "large-scale-area": { dataEditor: "generator", colorPolicy: "series" },
+  "lines-ny": { dataEditor: "generator", colorPolicy: "series" },
+  "matrix-covariance": { dataEditor: "matrix", colorPolicy: "gradient" },
+  "tree-lr": { dataEditor: "hierarchy", colorPolicy: "series" },
+  "treemap-basic": { dataEditor: "hierarchy", colorPolicy: "gradient" },
+  "treemap-sunburst": { dataEditor: "hierarchy", colorPolicy: "series" },
+  "sankey-basic": { dataEditor: "network", colorPolicy: "series" },
+  "sankey-gradient": { dataEditor: "network", colorPolicy: "series" },
+  "graph-les-mis": { dataEditor: "network", colorPolicy: "series" },
+  "graph-hide-overlap": { dataEditor: "network", colorPolicy: "series" },
+  "graph-gradient-edge": { dataEditor: "network", colorPolicy: "series" },
+  "map-usa-population": { dataEditor: "geo", colorPolicy: "gradient" },
+  "matrix-mini-bar-geo": { dataEditor: "geo", colorPolicy: "series" },
+  "geo-graph": { dataEditor: "geo-route", colorPolicy: "series" },
+  "bar-animation": { colorPolicy: "series" },
+  "gauge-speed": { colorPolicy: "official-fixed" },
+};
+
+function getChartPolicy(chartId: string): ChartPolicy {
+  const dataEditor: ChartDataEditorKind = PRESET_DATA_CHARTS.has(chartId)
+    ? "preset"
+    : SINGLE_VALUE_CHARTS.has(chartId)
+      ? "single-value"
+      : MULTI_SINGLE_VALUE_CHARTS.has(chartId)
+        ? "multi-value"
+        : "category-series";
+  return {
+    dataEditor,
+    colorPolicy: "series",
+    presetReason: dataEditor === "preset" ? "현재 단계에서는 공식 샘플 또는 생성기 데이터를 사용합니다." : undefined,
+    ...CHART_POLICY_OVERRIDES[chartId],
+  };
 }
 
+// ─── Sample Data Generators ───────────────────────────────────────────────────
 function genOHLC(count: number, rand: (a: number, b: number) => number = baseRand) {
   const data: [string, number, number, number, number][] = [];
   let price = 100;
@@ -275,6 +482,248 @@ function genOHLC(count: number, rand: (a: number, b: number) => number = baseRan
     data.push([ds, o, c, l, h]);
   }
   return data;
+}
+
+function createDefaultScatterSeries(): XYSeries[] {
+  return [
+    { id: "scatter-1", name: "Group A", points: [[10, 18], [18, 32], [25, 27], [34, 52], [43, 45], [52, 68]].map(([x, y]) => ({ x, y })) },
+    { id: "scatter-2", name: "Group B", points: [[12, 42], [21, 25], [30, 48], [38, 36], [47, 72], [58, 57]].map(([x, y]) => ({ x, y })) },
+  ];
+}
+
+function createDefaultBubbleSeries(): XYZSeries[] {
+  return [
+    { id: "bubble-1", name: "Market A", points: [[10, 35, 18], [22, 52, 26], [34, 46, 14], [48, 70, 34], [62, 58, 22]].map(([x, y, size]) => ({ x, y, size })) },
+    { id: "bubble-2", name: "Market B", points: [[14, 62, 22], [28, 38, 16], [40, 60, 30], [55, 42, 20], [68, 76, 28]].map(([x, y, size]) => ({ x, y, size })) },
+  ];
+}
+
+function createDefaultConfidencePoints(): RangePoint[] {
+  const values = [-1.15, -0.42, -0.18, -0.07, -0.02, 0.01, -0.04, 0.16, -0.06, -0.03, -0.12, 0.18, -0.08, -0.14, -0.05, -0.01, -0.03, 0.02, -0.04, 0, -0.06, -0.02, -0.01, 0.32];
+  const start = new Date(Date.UTC(2012, 7, 28));
+  return values.map((value, index) => {
+    const date = new Date(start);
+    date.setUTCDate(date.getUTCDate() + index * 5);
+    const spread = 0.07 + 1.2 * Math.exp(-index / 2.4) + Math.abs(Math.sin(index)) * 0.025;
+    return {
+      label: date.toISOString().slice(0, 10),
+      value,
+      lower: +(value - spread).toFixed(3),
+      upper: +(value + Math.max(0.05, spread * 0.4)).toFixed(3),
+    };
+  });
+}
+
+function createDefaultOHLCPoints(count: number, key: string): OHLCPoint[] {
+  const seeded = createSeededRand(key);
+  return genOHLC(count, seeded.rand).map(([date, open, close, low, high]) => ({ date, open, close, low, high }));
+}
+
+const USA_REGION_NAMES = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
+  "Delaware", "District of Columbia", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois",
+  "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts",
+  "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+  "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota",
+  "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
+  "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+  "West Virginia", "Wisconsin", "Wyoming", "Puerto Rico",
+];
+
+function createDefaultCartesianHeatmap(): MatrixCell[] {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const seeded = createSeededRand("heat-cartesian");
+  return days.flatMap((day, dayIndex) =>
+    Array.from({ length: 24 }, (_, hour) => ({ x: `${hour}:00`, y: day, value: seeded.rand(0, 100) + dayIndex }))
+  );
+}
+
+function createDefaultCovarianceMatrix(): MatrixCell[] {
+  const variables = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA", "NVDA", "META", "JPM"];
+  const seeded = createSeededRand("matrix-covariance");
+  const values: MatrixCell[] = [];
+  const lookup = new Map<string, number>();
+  variables.forEach((row, rowIndex) => variables.forEach((column, columnIndex) => {
+    const mirrorKey = `${columnIndex}:${rowIndex}`;
+    const value = rowIndex === columnIndex ? 1 : lookup.get(mirrorKey) ?? +(seeded.rand(-100, 100) / 100).toFixed(2);
+    lookup.set(`${rowIndex}:${columnIndex}`, value);
+    values.push({ x: column, y: row, value });
+  }));
+  return values;
+}
+
+function createDefaultSingleAxisScatter(): MatrixCell[] {
+  const hours = ["12a", "1a", "2a", "3a", "4a", "5a", "6a", "7a", "8a", "9a", "10a", "11a", "12p", "1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p", "10p", "11p"];
+  const days = ["Saturday", "Friday", "Thursday", "Wednesday", "Tuesday", "Monday", "Sunday"];
+  const seeded = createSeededRand("scatter-single");
+  return days.flatMap((day, dayIndex) => hours.map((hour, hourIndex) => {
+    const activeHour = hourIndex >= 10 && hourIndex <= 22;
+    const weekendBoost = dayIndex === 0 || dayIndex === 6 ? 2 : 0;
+    const value = activeHour ? seeded.rand(1, 10 + weekendBoost) : seeded.rand(0, 3);
+    return { x: hour, y: day, value };
+  }));
+}
+
+function createDefaultJitterScatter(): MatrixCell[] {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const seeded = createSeededRand("scatter-jitter");
+  return days.flatMap(day => Array.from({ length: 24 }, (_, index) => ({ x: day, y: `P${index + 1}`, value: +(seeded.rand(0, 100) / 10).toFixed(1) })));
+}
+
+function createDefaultCalendarHeatmap(): DateValuePoint[] {
+  const seeded = createSeededRand("heat-calendar");
+  const start = new Date(Date.UTC(2024, 0, 1));
+  return Array.from({ length: 366 }, (_, index) => {
+    const date = new Date(start);
+    date.setUTCDate(date.getUTCDate() + index);
+    return { date: date.toISOString().slice(0, 10), value: seeded.rand(0, 1000) };
+  });
+}
+
+function createDefaultHierarchy(): HierarchyRow[] {
+  return [
+    { id: "root", name: "Health & Human Services", parentId: "", value: 1100 },
+    { id: "cms", name: "Centers for Medicare and Medicaid Services", parentId: "root", value: 720 },
+    { id: "nih", name: "National Institutes of Health", parentId: "root", value: 120 },
+    { id: "acf", name: "Administration for Children and Families", parentId: "root", value: 88 },
+    { id: "cdc", name: "Centers for Disease Control and Prevention", parentId: "root", value: 62 },
+    { id: "fda", name: "Food and Drug Administration", parentId: "root", value: 42 },
+    { id: "hrsa", name: "Health Resources and Services Administration", parentId: "root", value: 30 },
+    { id: "sam", name: "Substance Abuse and Mental Health Services", parentId: "root", value: 18 },
+    { id: "other", name: "Other Programs", parentId: "root", value: 20 },
+  ];
+}
+
+function createDefaultSankeyData(): { nodes: NetworkNode[]; links: NetworkLink[] } {
+  const names = ["Coal", "Natural Gas", "Oil", "Electricity", "Heat", "Industry", "Buildings", "Transport"];
+  const nodes = names.map((name, index) => ({ id: `s${index}`, name, category: index < 3 ? "Source" : index < 5 ? "Conversion" : "Use" }));
+  const rawLinks: [string, string, number][] = [
+    ["Coal", "Electricity", 50], ["Natural Gas", "Electricity", 30], ["Natural Gas", "Heat", 20],
+    ["Oil", "Transport", 80], ["Oil", "Industry", 30], ["Electricity", "Industry", 40],
+    ["Electricity", "Buildings", 35], ["Heat", "Buildings", 20],
+  ];
+  return { nodes, links: rawLinks.map(([source, target, value], index) => ({ id: `sl${index}`, source, target, value })) };
+}
+
+function createDefaultGraphData(): { nodes: NetworkNode[]; links: NetworkLink[] } {
+  const nodes = Array.from({ length: 15 }, (_, index) => ({ id: `n${index}`, name: index < 3 ? `Hub ${index + 1}` : `Node ${index + 1}`, category: index < 3 ? "Core" : index < 9 ? "Support" : "Fringe" }));
+  const links: NetworkLink[] = nodes.slice(3).map((node, index) => ({ id: `gl${index}`, source: node.name, target: nodes[index % 3].name, value: 1 }));
+  links.push({ id: "gl-extra-1", source: "Hub 1", target: "Hub 2", value: 2 }, { id: "gl-extra-2", source: "Hub 2", target: "Hub 3", value: 2 });
+  return { nodes, links };
+}
+
+function createDefaultGeoRegions(): GeoRegionRow[] {
+  const seeded = createSeededRand("geo-regions");
+  return USA_REGION_NAMES.map(name => ({ name, value: seeded.rand(6, 390), secondary: seeded.rand(20, 200) }));
+}
+
+function createDefaultGeoRoute(): GeoRoutePoint[] {
+  return [
+    { name: "New York", longitude: -74.006, latitude: 40.7128 },
+    { name: "Boston", longitude: -71.0589, latitude: 42.3601 },
+    { name: "Chicago", longitude: -87.6298, latitude: 41.8781 },
+    { name: "Denver", longitude: -104.9903, latitude: 39.7392 },
+    { name: "Salt Lake City", longitude: -111.891, latitude: 40.7608 },
+    { name: "Seattle", longitude: -122.3321, latitude: 47.6062 },
+    { name: "San Francisco", longitude: -122.4194, latitude: 37.7749 },
+    { name: "Los Angeles", longitude: -118.2437, latitude: 34.0522 },
+    { name: "Phoenix", longitude: -112.074, latitude: 33.4484 },
+    { name: "Dallas", longitude: -96.797, latitude: 32.7767 },
+    { name: "Miami", longitude: -80.1918, latitude: 25.7617 },
+    { name: "Washington DC", longitude: -77.0369, latitude: 38.9072 },
+  ];
+}
+
+function hierarchyRowsToTree(rows: HierarchyRow[]) {
+  const nodeMap = new Map(rows.map(row => [row.id, { name: row.name, value: row.value, children: [] as any[] }]));
+  const roots: any[] = [];
+  rows.forEach(row => {
+    const node = nodeMap.get(row.id);
+    const parent = row.parentId ? nodeMap.get(row.parentId) : undefined;
+    if (node && parent && row.parentId !== row.id) parent.children.push(node);
+    else if (node) roots.push(node);
+  });
+  const stripEmpty = (node: any): any => node.children.length ? { ...node, children: node.children.map(stripEmpty) } : { name: node.name, value: node.value };
+  return roots.map(stripEmpty);
+}
+
+function hierarchyRowsToGradientTree(rows: HierarchyRow[]) {
+  const roots = hierarchyRowsToTree(rows);
+  const mapSiblingValues = (nodes: any[]): any[] => {
+    const numericValues = nodes.map(node => Number(node.value) || 0);
+    const average = numericValues.reduce((sum, value) => sum + value, 0) / Math.max(1, numericValues.length);
+    const maxDeviation = Math.max(1, ...numericValues.map(value => Math.abs(value - average)));
+
+    return nodes.map((node, index) => {
+      const rawValue = numericValues[index];
+      const visualValue = Math.max(-100, Math.min(100, ((rawValue - average) / maxDeviation) * 100));
+      return {
+        name: node.name,
+        value: [Math.max(0.01, Math.abs(rawValue)), +visualValue.toFixed(2)],
+        ...(node.children?.length ? { children: mapSiblingValues(node.children) } : {}),
+      };
+    });
+  };
+  return mapSiblingValues(roots);
+}
+
+function csvEscape(value: unknown): string {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+}
+
+function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (quoted) {
+      if (char === "\"" && text[index + 1] === "\"") { cell += "\""; index++; }
+      else if (char === "\"") quoted = false;
+      else cell += char;
+    } else if (char === "\"") quoted = true;
+    else if (char === ",") { row.push(cell.trim()); cell = ""; }
+    else if (char === "\n") { row.push(cell.trim()); if (row.some(Boolean)) rows.push(row); row = []; cell = ""; }
+    else if (char !== "\r") cell += char;
+  }
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function createDefaultSpecialChartData(): SpecialChartData {
+  const sankey = createDefaultSankeyData();
+  const graph = createDefaultGraphData();
+  return {
+    scatter: createDefaultScatterSeries(),
+    bubble: createDefaultBubbleSeries(),
+    confidence: createDefaultConfidencePoints(),
+    candleBasic: createDefaultOHLCPoints(40, "candle-basic"),
+    candleLarge: createDefaultOHLCPoints(120, "candle-large"),
+    cartesianHeatmap: createDefaultCartesianHeatmap(),
+    covarianceMatrix: createDefaultCovarianceMatrix(),
+    singleAxisScatter: createDefaultSingleAxisScatter(),
+    jitterScatter: createDefaultJitterScatter(),
+    calendarHeatmap: createDefaultCalendarHeatmap(),
+    hierarchy: createDefaultHierarchy(),
+    sankeyNodes: sankey.nodes,
+    sankeyLinks: sankey.links,
+    graphNodes: graph.nodes,
+    graphLinks: graph.links,
+    geoRegions: createDefaultGeoRegions(),
+    geoRoute: createDefaultGeoRoute(),
+    generator: {
+      seed: 42,
+      heatWidth: 100,
+      heatHeight: 100,
+      lineGrid: 110,
+      lineSpan: 1000,
+      areaPoints: 1500,
+      areaVolatility: 12,
+    },
+  };
 }
 
 // A small hub-and-spoke network with a bit of random extra wiring — reused across the
@@ -307,12 +756,13 @@ function buildEChartsOption(
   size: { w: number; h: number },
   autoResponsive: boolean,
   smoothLine: boolean,
+  specialData: SpecialChartData,
 ): echarts.EChartsOption {
   // Static-demo charts ignore Data Input and fabricate their own numbers — but this
   // function gets re-invoked on every theme toggle, resize, and SVG export, so without a
   // fixed seed those charts would silently reshuffle on unrelated interactions and could
   // render different data on screen vs. in an exported SVG (which rebuilds the option).
-  const isStaticDemo = STATIC_DEMO_CHARTS.has(chartId);
+  const isStaticDemo = SEEDED_DEMO_CHARTS.has(chartId);
   const seeded = isStaticDemo ? createSeededRand(chartId) : null;
   const rand = seeded ? seeded.rand : baseRand;
   const random = seeded ? seeded.random : Math.random;
@@ -326,24 +776,77 @@ function buildEChartsOption(
   const titleSz = isSmall ? 12 : isMid ? 16 : 20;
   const legendBottom = isSmall || isMid;
   const axisFontSz = isSmall ? 9 : 11;
+  const topPad = title ? (isSmall ? 36 : 52) : (isSmall ? 12 : 20);
+  const legendFontSize = isSmall ? 10 : 12;
+  const legendNames = datasets.map(dataset => dataset.name);
+  const legendEntryWidths = legendNames.map(name => Math.max(54, name.length * legendFontSize * 0.62 + 44));
+  const legendAvailableWidth = Math.max(160, w - 48);
+  let legendRows = 1;
+  let legendRowWidth = 0;
+  legendEntryWidths.forEach(entryWidth => {
+    if (legendRowWidth > 0 && legendRowWidth + entryWidth > legendAvailableWidth) {
+      legendRows++;
+      legendRowWidth = entryWidth;
+    } else {
+      legendRowWidth += entryWidth;
+    }
+  });
+  const legendBottomSpace = !isSmall && legendBottom ? Math.max(56, legendRows * 24 + 24) : 28;
+  const legendAxisBottomSpace = !isSmall ? Math.max(56, legendRows * 24 + 24) : 28;
+  const legendRightSpace = Math.max(
+    96,
+    Math.min(Math.max(96, w * 0.36), (Math.max(0, ...legendNames.map(name => name.length)) * legendFontSize * 0.62) + 62),
+  );
+  const categoryLegendNames = labels.length ? labels : ["Item"];
+  const categoryLegendEntryWidths = categoryLegendNames.map(name => Math.max(54, name.length * legendFontSize * 0.62 + 44));
+  let categoryLegendRows = 1;
+  let categoryLegendRowWidth = 0;
+  categoryLegendEntryWidths.forEach(entryWidth => {
+    if (categoryLegendRowWidth > 0 && categoryLegendRowWidth + entryWidth > legendAvailableWidth) {
+      categoryLegendRows++;
+      categoryLegendRowWidth = entryWidth;
+    } else {
+      categoryLegendRowWidth += entryWidth;
+    }
+  });
+  const categoryLegendRightSpace = Math.max(
+    96,
+    Math.min(Math.max(96, w * 0.36), (Math.max(0, ...categoryLegendNames.map(name => name.length)) * legendFontSize * 0.62) + 62),
+  );
+  const categoryLegendBottomSpace = !isSmall && legendBottom ? Math.max(56, categoryLegendRows * 24 + 24) : 28;
+  const categoryChartCenterX = legendBottom ? "50%" : `${Math.max(34, 50 - (categoryLegendRightSpace / Math.max(1, w)) * 50)}%`;
+  const categoryPieOuterRadius = `${Math.max(42, 62 - Math.max(0, categoryLegendRows - 1) * 5)}%`;
+  const seriesChartCenterX = legendBottom ? "50%" : `${Math.max(34, 50 - (legendRightSpace / Math.max(1, w)) * 50)}%`;
+  const seriesRadialRadius = `${Math.max(44, 70 - Math.max(0, legendRows - 1) * 5)}%`;
 
   const axisTick = { axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz }, axisLine: { lineStyle: { color: axisC } }, splitLine: { lineStyle: { color: axisC } } };
   const titleCfg: echarts.TitleComponentOption | undefined = title
     ? { text: title, left: "center", top: 6, textStyle: { color: fg, fontSize: titleSz, fontFamily: "Inter", fontWeight: "bold" } } : undefined;
   const legend: echarts.LegendComponentOption = {
     show: !isSmall,
+    type: datasets.length > 8 ? "scroll" : "plain",
     ...(legendBottom
       ? { bottom: 4, left: "center" }
-      : { right: 8, top: "middle", orient: "vertical" as const }),
+      : { right: 8, top: topPad, bottom: 16, orient: "vertical" as const }),
     itemGap: 16,
-    textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 10 : 12 },
+    textStyle: { color: fg, fontFamily: "Inter", fontSize: legendFontSize },
+    pageTextStyle: { color: fg, fontFamily: "Inter", fontSize: 10 },
   };
-  const topPad = title ? (isSmall ? 36 : 52) : (isSmall ? 12 : 20);
+  const categoryLegend: echarts.LegendComponentOption = {
+    show: !isSmall,
+    type: categoryLegendNames.length > 8 ? "scroll" : "plain",
+    ...(legendBottom
+      ? { bottom: 4, left: "center" }
+      : { right: 8, top: topPad, bottom: 16, orient: "vertical" as const }),
+    itemGap: 16,
+    textStyle: { color: fg, fontFamily: "Inter", fontSize: legendFontSize },
+    pageTextStyle: { color: fg, fontFamily: "Inter", fontSize: 10 },
+  };
   const gridL = isSmall ? 8 : 48;
   // When the legend is at the bottom (no vertical legend competing for right-side room),
   // mirror the left margin instead of a much tighter hardcoded value — a lone left-side
   // Y axis otherwise made the plot area look lopsided (left ~48px vs right ~8px at M/L size).
-  const grid = { left: gridL, right: legendBottom ? gridL : 96, top: topPad, bottom: isMid ? 60 : 28, containLabel: true };
+  const grid = { left: gridL, right: legendBottom ? gridL : legendRightSpace, top: topPad, bottom: legendBottomSpace, containLabel: true };
   // Same left/right mirroring as `grid` above — these charts have no legend or right-side
   // content either, so a bare 8-12px right margin looked just as lopsided against gridL.
   const gridFull = { left: gridL, right: gridL, top: topPad, bottom: 28, containLabel: true };
@@ -355,7 +858,15 @@ function buildEChartsOption(
   const withMinRight = (g: { right: number } & Record<string, unknown>, min: number) => ({ ...g, right: Math.max(g.right, min) });
   // Charts with a right-side value axis put the legend at the bottom regardless of width,
   // since a vertical right-aligned legend would collide with that axis's name/ticks.
-  const legendAxisSafe: echarts.LegendComponentOption = { show: !isSmall, bottom: 4, left: "center", itemGap: 16, textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 10 : 12 } };
+  const legendAxisSafe: echarts.LegendComponentOption = {
+    show: !isSmall,
+    type: datasets.length > 8 ? "scroll" : "plain",
+    bottom: 4,
+    left: "center",
+    itemGap: 16,
+    textStyle: { color: fg, fontFamily: "Inter", fontSize: legendFontSize },
+    pageTextStyle: { color: fg, fontFamily: "Inter", fontSize: 10 },
+  };
   // Right margin sized to the longest end-of-line label text instead of a guessed constant.
   const endLabelRight = (labelsArr: string[], fontSz = 11) => Math.max(...labelsArr.map(l => l.length)) * fontSz * 0.62 + 24;
 
@@ -393,17 +904,16 @@ function buildEChartsOption(
       };
 
     case "area-pieces": {
-      const pieceData: [string, number][] = [
-        ["2019-10-10", 200],
-        ["2019-10-11", 560],
-        ["2019-10-12", 750],
-        ["2019-10-13", 580],
-        ["2019-10-14", 250],
-        ["2019-10-15", 300],
-        ["2019-10-16", 450],
-        ["2019-10-17", 300],
-        ["2019-10-18", 100],
-      ];
+      const pieceData = userVals(0);
+      const pieceSeriesData: [string, number][] = userLabels.map((label, index) => [label, pieceData[index] ?? 0]);
+      const pieceName = datasets[0]?.name ?? "Area";
+      const pieceCount = userLabels.length;
+      const pieceBounds = [
+        Math.max(0, Math.floor(pieceCount * 0.15)),
+        Math.max(1, Math.floor(pieceCount * 0.4)),
+        Math.max(2, Math.floor(pieceCount * 0.6)),
+        Math.max(3, Math.floor(pieceCount * 0.85)),
+      ].map(index => Math.min(Math.max(0, pieceCount - 1), index));
       const pieceColor = "rgba(0, 0, 180, 0.4)";
 
       return {
@@ -414,7 +924,7 @@ function buildEChartsOption(
         xAxis: {
           type: "category",
           boundaryGap: false,
-          data: pieceData.map(([date]) => date),
+          data: userLabels,
           axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
           axisLine: { lineStyle: { color: axisC } },
           axisTick: { show: false },
@@ -433,71 +943,108 @@ function buildEChartsOption(
           dimension: 0,
           seriesIndex: 0,
           pieces: [
-            { gt: 1, lt: 3, color: pieceColor },
-            { gt: 5, lt: 7, color: pieceColor },
+            { gt: pieceBounds[0], lt: pieceBounds[1], color: pieceColor },
+            { gt: pieceBounds[2], lt: pieceBounds[3], color: pieceColor },
           ],
         },
         series: [{
-          name: "Area",
+          name: pieceName,
           type: "line",
-          smooth: 0.6,
+          smooth: smoothLine ? 0.6 : false,
           symbol: "none",
-          lineStyle: { color: "#5470C6", width: 5 },
+          lineStyle: { color: palette[0], width: 5 },
           markLine: {
             symbol: ["none", "none"],
             label: { show: false },
-            lineStyle: { color: "#6B8CFF", type: "dashed", width: 1.5, opacity: 0.9 },
-            data: [{ xAxis: 1 }, { xAxis: 3 }, { xAxis: 5 }, { xAxis: 7 }],
+            lineStyle: { color: palette[0], type: "dashed", width: 1.5, opacity: 0.9 },
+            data: pieceBounds.map(xAxis => ({ xAxis })),
           },
           areaStyle: {},
-          data: pieceData,
+          data: pieceSeriesData,
         }],
         legend: { show: false },
       };
     }
 
     case "line-bump": {
-      const teams = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"];
-      const bumData = teams.map((t, i) => {
-        let rank = i + 1;
-        const vals = userLabels.map(() => { rank = Math.max(1, Math.min(teams.length, rank + rand(-1, 1))); return rank; });
-        return { name: t, type: "line" as const, data: vals, smooth: false, symbolSize: 8, lineStyle: { width: 2.5 }, itemStyle: { color: palette[i % palette.length] } };
+      const rankCount = Math.max(1, datasets.length);
+      const ranksBySeries = datasets.map(() => Array<number>(userLabels.length).fill(1));
+      userLabels.forEach((_, pointIndex) => {
+        const ordered = datasets
+          .map((dataset, datasetIndex) => ({ datasetIndex, value: dataset.data[pointIndex] ?? Number.POSITIVE_INFINITY }))
+          .sort((a, b) => a.value - b.value || a.datasetIndex - b.datasetIndex);
+        ordered.forEach((entry, rankIndex) => {
+          ranksBySeries[entry.datasetIndex][pointIndex] = rankIndex + 1;
+        });
       });
+      const bumData = datasets.map((dataset, i) => ({
+        name: dataset.name,
+        type: "line" as const,
+        data: ranksBySeries[i],
+        smooth: smoothLine,
+        symbolSize: isSmall ? 8 : 12,
+        emphasis: { focus: "series" as const },
+        endLabel: {
+          show: true,
+          formatter: (params: any) => `${params.seriesName}  #${params.value}`,
+          distance: 16,
+          color: fg,
+          fontFamily: "Inter",
+          fontSize: isSmall ? 9 : 11,
+          fontWeight: 600,
+        },
+        labelLayout: { moveOverlap: "shiftY" as const },
+        lineStyle: { width: isSmall ? 2.5 : 4 },
+        itemStyle: { color: palette[i % palette.length] },
+      }));
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip, grid,
-        xAxis: { type: "category", data: userLabels, ...axisTick },
-        yAxis: { type: "value", inverse: true, min: 1, max: teams.length, interval: 1, ...axisTick },
+        backgroundColor: bg,
+        color: palette,
+        title: titleCfg,
+        legend: { show: false },
+        tooltip: {
+          ...tooltip,
+          trigger: "item",
+          formatter: (params: any) => `${params.seriesName}<br/>${params.name}: #${params.value}`,
+        },
+        grid: {
+          ...gridFull,
+          left: isSmall ? 28 : 46,
+          right: Math.max(isSmall ? 76 : 118, endLabelRight(datasets.map(dataset => `${dataset.name} #${rankCount}`), isSmall ? 9 : 11)),
+          bottom: isSmall ? 32 : 44,
+        },
+        xAxis: {
+          type: "category",
+          boundaryGap: false,
+          data: userLabels,
+          ...axisTick,
+          splitLine: { show: true, lineStyle: { color: axisC } },
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz, margin: isSmall ? 12 : 22 },
+        },
+        yAxis: {
+          type: "value",
+          inverse: true,
+          min: 1,
+          max: rankCount,
+          interval: 1,
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz, formatter: "#{value}", margin: isSmall ? 10 : 18 },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+          splitLine: { lineStyle: { color: axisC } },
+        },
         series: bumData,
       };
     }
 
     case "line-confidence": {
-      const confidenceCount = 114;
-      const confidenceDates = Array.from({ length: confidenceCount }, (_, i) => {
-        const date = new Date(Date.UTC(2012, 7, 28 + i));
-        return date.toISOString().slice(0, 10);
-      });
-      const gaussian = (x: number, center: number, width: number, amplitude: number) =>
-        amplitude * Math.exp(-Math.pow((x - center) / width, 2));
-      const confidenceValues = confidenceDates.map((_, i) => {
-        const startup = -1.15 * Math.exp(-i / 3.8);
-        const baseline = -0.015 + Math.sin(i / 7) * 0.018 + Math.sin(i * 1.8) * 0.009;
-        const events =
-          gaussian(i, 31, 1.2, 0.2) +
-          gaussian(i, 53, 1.5, 0.18) +
-          gaussian(i, 56, 1.1, 0.34) -
-          gaussian(i, 45, 2.2, 0.1) -
-          gaussian(i, 61, 3.4, 0.15) +
-          gaussian(i, 113, 0.7, 0.36);
-        return +(startup + baseline + events).toFixed(4);
-      });
-      const confidenceLower = confidenceValues.map((value, i) =>
-        +(value - 0.08 - 1.32 * Math.exp(-i / 4.2) - Math.abs(Math.sin(i / 9)) * 0.025).toFixed(4)
-      );
-      const confidenceUpper = confidenceValues.map((value, i) =>
-        +(value + 0.045 + 0.16 * Math.exp(-i / 5.5) + Math.abs(Math.cos(i / 11)) * 0.018).toFixed(4)
-      );
-      const confidenceOffset = -Math.floor(Math.min(...confidenceLower));
+      const confidencePoints = specialData.confidence.length ? specialData.confidence : createDefaultConfidencePoints();
+      const confidenceDates = confidencePoints.map(point => point.label);
+      const confidenceValues = confidencePoints.map(point => point.value);
+      const confidenceLower = confidencePoints.map(point => Math.min(point.lower, point.value, point.upper));
+      const confidenceUpper = confidencePoints.map(point => Math.max(point.lower, point.value, point.upper));
+      const confidenceMin = Math.floor(Math.min(...confidenceLower) * 10) / 10;
+      const confidenceMax = Math.ceil(Math.max(...confidenceUpper) * 10) / 10;
+      const confidenceOffset = confidenceMin < 0 ? -confidenceMin : 0;
       const adjustedLower = confidenceLower.map(value => +(value + confidenceOffset).toFixed(4));
       const bandWidth = confidenceUpper.map((value, i) => +(value - confidenceLower[i]).toFixed(4));
       const adjustedValues = confidenceValues.map(value => +(value + confidenceOffset).toFixed(4));
@@ -564,10 +1111,9 @@ function buildEChartsOption(
         },
         yAxis: {
           type: "value",
-          min: confidenceOffset - 3,
-          max: confidenceOffset + 1,
-          interval: 1,
-          splitNumber: 3,
+          min: confidenceMin + confidenceOffset,
+          max: confidenceMax + confidenceOffset,
+          splitNumber: 4,
           axisLabel: {
             color: fg,
             fontFamily: "Inter",
@@ -587,6 +1133,7 @@ function buildEChartsOption(
           {
             name: "Lower",
             type: "line",
+            smooth: smoothLine,
             data: adjustedLower,
             lineStyle: { opacity: 0 },
             stack: "confidence-band",
@@ -595,20 +1142,22 @@ function buildEChartsOption(
           {
             name: "U",
             type: "line",
+            smooth: smoothLine,
             data: bandWidth,
             lineStyle: { opacity: 0 },
-            areaStyle: { color: theme === "dark" ? "rgba(209,213,219,0.28)" : "#ccc" },
+            areaStyle: { color: palette[0], opacity: theme === "dark" ? 0.28 : 0.2 },
             stack: "confidence-band",
             symbol: "none",
           },
           {
             name: "Value",
             type: "line",
+            smooth: smoothLine,
             data: adjustedValues,
             showSymbol: false,
             symbolSize: 6,
-            lineStyle: { color: theme === "dark" ? "#e5e7eb" : "#333", width: 2.5 },
-            itemStyle: { color: "#c23531" },
+            lineStyle: { color: palette[0], width: 2.5 },
+            itemStyle: { color: palette[0] },
           },
         ],
         legend: { show: false },
@@ -627,15 +1176,15 @@ function buildEChartsOption(
       };
 
     case "line-area-time": {
-      const dates = genDates(userLabels.length || 30).slice(0, userLabels.length || 30);
       const vals = userVals(0);
+      const hasTimeLabels = userLabels.every(label => Number.isFinite(Date.parse(label)));
       return {
         backgroundColor: bg, color: palette, title: titleCfg, tooltip: { ...tooltip, trigger: "axis" }, grid,
-        xAxis: { type: "time", ...axisTick },
+        xAxis: hasTimeLabels ? { type: "time", ...axisTick } : { type: "category", data: userLabels, boundaryGap: false, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: [{
           name: datasets[0]?.name ?? "Value", type: "line", smooth: smoothLine,
-          data: dates.map((d, i) => [d, vals[i] ?? rand(20, 100)]),
+          data: hasTimeLabels ? userLabels.map((label, index) => [label, vals[index] ?? 0]) : vals,
           areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: palette[0] + "CC" }, { offset: 1, color: palette[0] + "00" }] } },
           lineStyle: { color: palette[0], width: 2.5 },
           itemStyle: { color: palette[0] }, symbol: "none",
@@ -660,64 +1209,10 @@ function buildEChartsOption(
       };
     }
 
-    case "line-rainfall": {
-      const evap = userLabels.map(() => rand(10, 60));
-      const precip = userLabels.map(() => rand(20, 120));
-      return {
-        backgroundColor: bg, color: palette, title: titleCfg,
-        tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: "cross" } },
-        legend: { ...legendAxisSafe, data: ["Evaporation", "Precipitation"] },
-        grid: withMinRight(grid, dualAxisNameRight),
-        xAxis: { type: "category", data: userLabels, ...axisTick },
-        yAxis: [
-          { type: "value", name: "Evap (ml)", nameTextStyle: { color: fg, fontFamily: "Inter", fontSize: 11 }, ...axisTick },
-          { type: "value", name: "Precip (ml)", nameTextStyle: { color: fg, fontFamily: "Inter", fontSize: 11 }, opposite: true, splitLine: { show: false } },
-        ],
-        series: [
-          { name: "Evaporation", type: "bar", data: evap, itemStyle: { color: palette[0] }, barMaxWidth: 30 },
-          { name: "Precipitation", type: "line", yAxisIndex: 1, data: precip, smooth: smoothLine, lineStyle: { color: palette[1], width: 2.5 }, itemStyle: { color: palette[1] } },
-        ],
-      };
-    }
-
-    case "line-datazoom":
-      return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip, grid: { ...grid, bottom: legendBottom ? 90 : 60 },
-        xAxis: { type: "category", data: userLabels, ...axisTick },
-        yAxis: { type: "value", ...axisTick },
-        dataZoom: [{ type: "slider", bottom: legendBottom ? 52 : 24, height: 20 }, { type: "inside" }],
-        series: datasets.map((ds, i) => ({
-          name: ds.name, type: "line", data: ds.data, smooth: smoothLine,
-          lineStyle: { width: 2 }, itemStyle: { color: palette[i % palette.length] },
-        })),
-      };
-
-    case "line-dynamic": {
-      const dyn = Array.from({ length: 20 }, () => rand(20, 100));
-      return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid,
-        xAxis: { type: "category", data: Array.from({ length: 20 }, (_, i) => `T${i + 1}`), ...axisTick },
-        yAxis: { type: "value", ...axisTick },
-        series: [{ name: "Value", type: "line", data: dyn, smooth: smoothLine, lineStyle: { color: palette[0], width: 2.5 }, itemStyle: { color: palette[0] }, areaStyle: { color: palette[0] + "30" } }],
-      };
-    }
-
     case "line-aqi": {
-      const xData = Array.from({ length: 365 }, (_, i) => {
-        const date = new Date(2014, 0, i + 1);
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      });
-      let aqiLevel = 85;
-      const aqiData = xData.map((_, i) => {
-        const seasonal = 72 + Math.cos((i / 365) * Math.PI * 2) * 30;
-        const shortCycle = Math.sin(i / 8) * 26 + Math.sin(i / 23) * 18;
-        const pollutionSpike = random() > 0.94 ? rand(70, 190) : 0;
-        aqiLevel = Math.max(
-          8,
-          Math.min(430, aqiLevel * 0.58 + seasonal * 0.42 + shortCycle * 0.3 + rand(-24, 24) + pollutionSpike),
-        );
-        return Math.round(aqiLevel);
-      });
+      const xData = userLabels;
+      const aqiData = userVals(0);
+      const aqiName = datasets[0]?.name ?? "Beijing AQI";
       const aqiPieces = [
         { gt: 0, lte: 50, color: "#93CE07", label: "0 - 50" },
         { gt: 50, lte: 100, color: "#FBDB0F", label: "50 - 100" },
@@ -743,13 +1238,13 @@ function buildEChartsOption(
         dataZoom: [
           {
             type: "slider",
-            startValue: "2014-06-01",
+            start: xData.length > 20 ? 45 : 0,
             height: 18,
             bottom: 8,
             borderColor: axisC,
             textStyle: { color: fg, fontFamily: "Inter", fontSize: 10 },
           },
-          { type: "inside", startValue: "2014-06-01" },
+          { type: "inside", start: xData.length > 20 ? 45 : 0 },
         ],
         visualMap: {
           show: !isSmall,
@@ -774,8 +1269,9 @@ function buildEChartsOption(
         },
         yAxis: { type: "value", ...axisTick },
         series: [{
-          name: "Beijing AQI",
+          name: aqiName,
           type: "line",
+          smooth: false,
           data: aqiData,
           showSymbol: false,
           lineStyle: { width: 2 },
@@ -792,11 +1288,13 @@ function buildEChartsOption(
     }
 
     case "large-scale-area": {
-      const n = 1500;
+      const n = Math.max(100, Math.min(20000, Math.round(specialData.generator.areaPoints)));
+      const volatility = Math.max(1, Math.min(100, Math.round(specialData.generator.areaVolatility)));
+      const areaRand = createSeededRand(`large-scale-area-${specialData.generator.seed}`).rand;
       const oneDay = 24 * 3600 * 1000;
       let t = +new Date(2020, 0, 1);
-      const ldata: [number, number][] = [[t, rand(80, 160)]];
-      for (let i = 1; i < n; i++) { t += oneDay; ldata.push([t, Math.max(0, ldata[i - 1][1] + rand(-12, 12))]); }
+      const ldata: [number, number][] = [[t, areaRand(80, 160)]];
+      for (let i = 1; i < n; i++) { t += oneDay; ldata.push([t, Math.max(0, ldata[i - 1][1] + areaRand(-volatility, volatility))]); }
       return {
         backgroundColor: bg, title: titleCfg || { text: "Large-Scale Area Chart", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: { trigger: "axis", axisPointer: { type: "line" } },
@@ -810,38 +1308,52 @@ function buildEChartsOption(
     }
 
     case "area-rainfall": {
-      const hours = 240;
-      const rdates = Array.from({ length: hours }, (_, i) => { const d = new Date(2024, 5, 1); d.setHours(d.getHours() + i); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`; });
-      let flow = 0.6;
-      const flowData = rdates.map(() => { flow = Math.max(0.2, flow + rand(-10, 10) / 100); return +flow.toFixed(2); });
-      const rainData = rdates.map(() => (random() < 0.12 ? +(random() * 3).toFixed(2) : 0));
+      const rdates = userLabels;
+      const flowData = userVals(0);
+      const rainData = userVals(1);
+      const flowName = datasets[0]?.name ?? "Flow";
+      const rainName = datasets[1]?.name ?? "Rainfall";
+      const rainAreaStart = rdates[Math.floor(rdates.length * 0.4)];
+      const rainAreaEnd = rdates[Math.min(rdates.length - 1, Math.floor(rdates.length * 0.62))];
       return {
         backgroundColor: bg, title: titleCfg || { text: "Rainfall and Flow Relationship", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
-        // extra bottom room stacks: xAxis labels, then legend, then the dataZoom slider
-        grid: withMinRight({ ...gridFull, bottom: 88 }, dualAxisNameRight),
-        tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-        legend: { ...legendAxisSafe, bottom: 34, data: ["Flow", "Rainfall"] },
-        dataZoom: [{ show: true, start: 40, end: 70, bottom: 8 }, { type: "inside", start: 40, end: 70 }],
+        grid: { ...gridFull, top: topPad + 22, bottom: 80 },
+        tooltip: { trigger: "axis", axisPointer: { type: "cross", animation: false, label: { backgroundColor: "#505765" } } },
+        legend: { ...legendAxisSafe, left: 10, top: title ? 38 : 10, data: [flowName, rainName] },
+        dataZoom: [
+          { show: true, realtime: true, start: 0, end: rdates.length > 40 ? 35 : 100, bottom: 8, height: 18 },
+          { type: "inside", realtime: true, start: 0, end: rdates.length > 40 ? 35 : 100 },
+        ],
         xAxis: { type: "category", boundaryGap: false, data: rdates, axisLine: { onZero: false, lineStyle: { color: axisC } }, axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz } },
         yAxis: [
-          { type: "value", name: "Flow", nameTextStyle: { color: fg, fontFamily: "Inter" }, ...axisTick },
-          { type: "value", name: "Rainfall", nameLocation: "start", inverse: true, ...axisTick },
+          { type: "value", name: "Flow", nameLocation: "middle", nameGap: isSmall ? 30 : 42, nameTextStyle: { color: fg, fontFamily: "Inter" }, ...axisTick },
+          { type: "value", name: "Rainfall", nameLocation: "middle", nameGap: isSmall ? 30 : 42, inverse: true, ...axisTick },
         ],
         series: [
-          { name: "Flow", type: "line", areaStyle: { opacity: 0.5 }, lineStyle: { width: 1, color: palette[0] }, itemStyle: { color: palette[0] }, symbol: "none", data: flowData },
-          { name: "Rainfall", type: "line", yAxisIndex: 1, areaStyle: { opacity: 0.5 }, lineStyle: { width: 1, color: palette[1] }, itemStyle: { color: palette[1] }, symbol: "none", data: rainData },
+          {
+            name: flowName, type: "line", smooth: false, areaStyle: {}, lineStyle: { width: 1, color: palette[0] },
+            itemStyle: { color: palette[0] }, symbol: "none", emphasis: { focus: "series" }, data: flowData,
+          },
+          {
+            name: rainName, type: "line", smooth: false, yAxisIndex: 1, areaStyle: {}, lineStyle: { width: 1, color: palette[1] },
+            itemStyle: { color: palette[1] }, symbol: "none", emphasis: { focus: "series" },
+            markArea: rainAreaStart && rainAreaEnd ? {
+              silent: true,
+              itemStyle: { opacity: 0.3 },
+              data: [[{ xAxis: rainAreaStart }, { xAxis: rainAreaEnd }]],
+            } : undefined,
+            data: rainData,
+          },
         ],
       };
     }
 
     case "line-race": {
-      const countries = ["Finland", "France", "Germany", "Norway", "Poland", "Portugal"];
-      const years = Array.from({ length: 8 }, (_, i) => String(1950 + i * 10));
-      const raceSeries = countries.map((name, ci) => {
-        let v = rand(800, 2000);
-        const data = years.map(() => { v = Math.max(500, v + rand(-50, 400)); return v; });
+      const countries = datasets.map(dataset => dataset.name);
+      const years = userLabels;
+      const raceSeries = datasets.map((dataset, ci) => {
         return {
-          type: "line" as const, name, showSymbol: false, data,
+          type: "line" as const, name: dataset.name, showSymbol: false, smooth: smoothLine, data: dataset.data,
           endLabel: { show: true, formatter: "{a}", color: fg, fontFamily: "Inter", fontSize: 11 },
           labelLayout: { moveOverlap: "shiftY" as const },
           emphasis: { focus: "series" as const },
@@ -888,16 +1400,39 @@ function buildEChartsOption(
     }
 
     case "bar-negative": {
-      const neg = userLabels.map(() => rand(-80, 80));
+      const neg = userVals(0);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip, grid: gridFull,
-        xAxis: { type: "value", ...axisTick },
-        yAxis: { type: "category", data: userLabels, ...axisTick },
+        backgroundColor: bg,
+        color: palette,
+        title: titleCfg,
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+        grid: { ...gridFull, top: topPad + 20, bottom: 30 },
+        xAxis: {
+          type: "value",
+          position: "top",
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+          splitLine: { lineStyle: { color: axisC, type: "dashed" } },
+        },
+        yAxis: {
+          type: "category",
+          data: userLabels,
+          axisLine: { show: false },
+          axisLabel: { show: false },
+          axisTick: { show: false },
+          splitLine: { show: false },
+        },
         series: [{
-          name: datasets[0]?.name ?? "Profit/Loss", type: "bar", data: neg,
+          name: datasets[0]?.name ?? "Cost",
+          type: "bar",
+          stack: "Total",
+          data: neg.map(value => value < 0 ? { value, label: { position: "right" } } : value),
           barMaxWidth: 30,
-          itemStyle: { color: (params: any) => params.value >= 0 ? palette[2] ?? "#10b981" : palette[3] ?? "#ef4444", borderRadius: (params: any) => params.value >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] } as any,
+          itemStyle: { color: palette[0] },
+          label: { show: true, formatter: "{b}", color: fg, fontFamily: "Inter", fontSize: axisFontSz },
         }],
+        legend: { show: false },
       };
     }
 
@@ -952,21 +1487,53 @@ function buildEChartsOption(
     }
 
     case "bar-waterfall": {
-      const items = ["Total\nIncome", "Rent", "Utility", "Transport", "Meals", "Phone", "Savings"];
-      const raw = [2000, -400, -150, -200, -300, -100, 850];
+      const items = userLabels;
+      const raw = userVals(0);
       let running = 0;
-      const placeholder: number[] = [], bar: number[] = [];
+      const placeholder: number[] = [];
+      const increases: number[] = [];
+      const decreases: number[] = [];
       raw.forEach((v, i) => {
-        if (i === 0 || i === raw.length - 1) { placeholder.push(0); bar.push(v); running = i === 0 ? v : running; }
-        else { placeholder.push(running); bar.push(v); running += v; }
+        if (i === 0 || i === raw.length - 1) {
+          placeholder.push(0);
+          increases.push(Math.max(0, v));
+          decreases.push(Math.max(0, -v));
+          if (i === 0) running = v;
+          return;
+        }
+        if (v >= 0) {
+          placeholder.push(running);
+          increases.push(v);
+          decreases.push(0);
+          running += v;
+        } else {
+          running += v;
+          placeholder.push(running);
+          increases.push(0);
+          decreases.push(-v);
+        }
       });
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip: { ...tooltip, formatter: (p: any) => Array.isArray(p) ? "" : `${p.name}: ${p.data < 0 ? "-" : "+"}${Math.abs(p.data)}` }, grid: gridFull,
+        backgroundColor: bg,
+        color: palette,
+        title: titleCfg,
+        tooltip: {
+          ...tooltip,
+          trigger: "axis",
+          axisPointer: { type: "shadow" },
+          formatter: (params: any) => {
+            const index = (Array.isArray(params) ? params[0] : params)?.dataIndex ?? 0;
+            const value = raw[index] ?? 0;
+            return `${items[index] ?? ""}: ${value > 0 ? "+" : ""}${value}`;
+          },
+        },
+        grid: gridFull,
         xAxis: { type: "category", data: items, ...axisTick },
         yAxis: { type: "value", ...axisTick },
         series: [
           { type: "bar", stack: "total", data: placeholder, itemStyle: { borderColor: "transparent", color: "transparent" }, emphasis: { itemStyle: { borderColor: "transparent", color: "transparent" } }, silent: true },
-          { name: "Amount", type: "bar", stack: "total", data: bar.map((v, i) => ({ value: v, itemStyle: { color: v >= 0 ? palette[2] ?? "#10b981" : palette[3] ?? "#ef4444", borderRadius: v >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4] } })), barMaxWidth: 40 },
+          { name: datasets[0]?.name ?? "Increase", type: "bar", stack: "total", data: increases, itemStyle: { color: palette[2] ?? "#10b981", borderRadius: [4, 4, 0, 0] }, barMaxWidth: 40 },
+          { name: "Decrease", type: "bar", stack: "total", data: decreases, itemStyle: { color: palette[3] ?? "#ef4444", borderRadius: [0, 0, 4, 4] }, barMaxWidth: 40 },
         ],
         legend: { show: false },
       };
@@ -976,10 +1543,9 @@ function buildEChartsOption(
       // A real race needs values that change over time, not one static snapshot — ECharts'
       // timeline feature drives that: each timeline entry is a frame, autoPlay steps through
       // them, and realtimeSort animates the bars reordering as values change between frames.
-      const countries = ["🇺🇸 USA", "🇨🇳 China", "🇯🇵 Japan", "🇩🇪 Germany", "🇬🇧 UK", "🇫🇷 France", "🇮🇳 India"];
-      const years = Array.from({ length: 10 }, (_, i) => String(2015 + i));
-      let vals = countries.map(() => rand(20, 100));
-      const frames = years.map(() => { vals = vals.map(v => Math.max(10, v + rand(-8, 15))); return [...vals]; });
+      const countries = datasets.map(dataset => dataset.name);
+      const years = userLabels;
+      const frames = years.map((_, frameIndex) => datasets.map(dataset => dataset.data[frameIndex] ?? 0));
       return {
         baseOption: {
           backgroundColor: bg, color: palette, title: { ...titleCfg, text: title || "Bar Race" },
@@ -999,15 +1565,52 @@ function buildEChartsOption(
     }
 
     case "bar-world-pop": {
-      const regions = ["Asia", "Africa", "Europe", "Americas", "Oceania"];
-      const pops = [4700, 1400, 750, 1000, 45];
+      const countries = userLabels;
+      const populationSeries = datasets;
+
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip,
-        grid: { ...gridFull, left: 80 },
-        xAxis: { type: "value", axisLabel: { formatter: (v: number) => `${v}M`, color: fg, fontFamily: "Inter", fontSize: 11 }, splitLine: { lineStyle: { color: axisC } } },
-        yAxis: { type: "category", data: regions, ...axisTick },
-        series: [{ type: "bar", data: pops.map((v, i) => ({ value: v, itemStyle: { color: palette[i % palette.length] } })), label: { show: true, position: "right", color: fg, fontFamily: "Inter", fontSize: 11, formatter: (p: any) => `${p.value}M` }, barMaxWidth: 32, itemStyle: { borderRadius: [0, 4, 4, 0] } }],
-        legend: { show: false },
+        backgroundColor: bg,
+        color: palette,
+        title: titleCfg,
+        tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: "shadow" } },
+        legend: {
+          ...legendAxisSafe,
+          data: populationSeries.map(series => series.name),
+        },
+        grid: {
+          ...gridFull,
+          left: isSmall ? 66 : 84,
+          right: isSmall ? 10 : 28,
+          bottom: isSmall ? 42 : legendAxisBottomSpace,
+        },
+        xAxis: {
+          type: "value",
+          boundaryGap: [0, 0.01],
+          axisLabel: {
+            color: fg,
+            fontFamily: "Inter",
+            fontSize: axisFontSz,
+            formatter: (value: number) => value >= 1000 ? `${value / 1000}K` : String(value),
+          },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+          splitLine: { lineStyle: { color: axisC } },
+        },
+        yAxis: {
+          type: "category",
+          data: countries,
+          axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
+          axisLine: { lineStyle: { color: axisC } },
+          axisTick: { show: false },
+        },
+        series: populationSeries.map((series, i) => ({
+          name: series.name,
+          type: "bar" as const,
+          data: series.data,
+          barMaxWidth: isSmall ? 14 : 20,
+          itemStyle: { color: palette[i % palette.length] },
+          emphasis: { focus: "series" as const },
+        })),
       };
     }
 
@@ -1015,22 +1618,25 @@ function buildEChartsOption(
       // The official Animation Delay example uses 100 formula-generated categories. The
       // two oscillating series make the staggered entrance readable while their baseline
       // rises from roughly -50 to 120 across A0–A99.
-      const animationLabels = Array.from({ length: 100 }, (_, i) => `A${i}`);
-      const animationData1 = animationLabels.map((_, i) =>
-        +((Math.sin(i / 5) * (i / 5 - 10) + i / 6) * 5).toFixed(2)
-      );
-      const animationData2 = animationLabels.map((_, i) =>
-        +((Math.cos(i / 5) * (i / 5 - 10) + i / 6) * 5).toFixed(2)
-      );
-      const seriesColors = ["#5070DD", "#B6D634"];
+      const animationLabels = userLabels;
+      const animationData1 = userVals(0);
+      const animationData2 = userVals(1);
+      const animationName1 = datasets[0]?.name ?? "bar";
+      const animationName2 = datasets[1]?.name ?? "bar2";
+      const animationValues = [...animationData1, ...animationData2];
+      const rawMin = Math.min(0, ...animationValues);
+      const rawMax = Math.max(0, ...animationValues);
+      const animationPadding = Math.max(1, (rawMax - rawMin) * 0.12);
+      const animationMin = Math.floor((rawMin - animationPadding) / 10) * 10;
+      const animationMax = Math.ceil((rawMax + animationPadding) / 10) * 10;
 
       return {
         backgroundColor: bg,
-        color: seriesColors,
+        color: palette,
         title: titleCfg,
-        legend: { ...legendAxisSafe, data: ["bar", "bar2"] },
+        legend: { ...legendAxisSafe, data: [animationName1, animationName2] },
         tooltip: { ...tooltip, axisPointer: { type: "shadow" } },
-        grid: { ...gridFull, bottom: isSmall ? 40 : 52 },
+        grid: { ...gridFull, bottom: isSmall ? 40 : legendAxisBottomSpace },
         xAxis: {
           type: "category",
           data: animationLabels,
@@ -1041,9 +1647,8 @@ function buildEChartsOption(
         },
         yAxis: {
           type: "value",
-          min: -60,
-          max: 150,
-          interval: 30,
+          min: animationMin,
+          max: animationMax,
           axisLabel: { color: fg, fontFamily: "Inter", fontSize: axisFontSz },
           axisLine: { show: false },
           axisTick: { show: false },
@@ -1051,18 +1656,18 @@ function buildEChartsOption(
         },
         series: [
           {
-            name: "bar",
+            name: animationName1,
             type: "bar",
             data: animationData1,
-            itemStyle: { color: seriesColors[0] },
+            itemStyle: { color: palette[0] },
             emphasis: { focus: "series" as const },
             animationDelay: (idx: number) => idx * 10,
           },
           {
-            name: "bar2",
+            name: animationName2,
             type: "bar",
             data: animationData2,
-            itemStyle: { color: seriesColors[1] },
+            itemStyle: { color: palette[1 % palette.length] },
             emphasis: { focus: "series" as const },
             animationDelay: (idx: number) => idx * 10 + 100,
           },
@@ -1095,7 +1700,7 @@ function buildEChartsOption(
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
         legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
-        grid: withMinRight(grid, multiYRight),
+        grid: withMinRight({ ...grid, bottom: legendAxisBottomSpace }, multiYRight),
         xAxis: { type: "category", data: userLabels, ...axisTick },
         yAxis: datasets.map((ds, i) => ({
           type: "value" as const, name: ds.name, position: (i === 0 ? "left" : "right") as const,
@@ -1169,7 +1774,7 @@ function buildEChartsOption(
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis" },
         legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
-        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", title ? "56%" : "52%"] },
+        polar: { radius: isSmall ? "58%" : seriesRadialRadius, center: ["50%", title ? "52%" : "50%"] },
         angleAxis: { ...axisTick },
         radiusAxis: { type: "category", data: userLabels, z: 10, ...axisTick },
         series: datasets.map((ds, i) => ({
@@ -1187,7 +1792,7 @@ function buildEChartsOption(
         backgroundColor: bg, title: titleCfg || { text: "Rounded Bar on Polar", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: { trigger: "axis" },
         legend: { ...legendAxisSafe, data: ["Square Cap", "Round Cap"] },
-        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", "52%"] },
+        polar: { radius: isSmall ? "58%" : seriesRadialRadius, center: ["50%", "50%"] },
         angleAxis: { startAngle: 90, ...axisTick },
         radiusAxis: { type: "category", data: userLabels, z: 10, ...axisTick },
         series: [
@@ -1204,7 +1809,7 @@ function buildEChartsOption(
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis" },
         legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
-        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", title ? "56%" : "52%"] },
+        polar: { radius: isSmall ? "58%" : seriesRadialRadius, center: ["50%", title ? "52%" : "50%"] },
         angleAxis: { ...axisTick },
         radiusAxis: { type: "category", data: userLabels, z: 10, ...axisTick },
         series: datasets.map((ds, i) => ({
@@ -1222,7 +1827,7 @@ function buildEChartsOption(
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis" },
         legend: { ...legendAxisSafe, data: datasets.map(d => d.name) },
-        polar: { radius: isSmall ? "58%" : "70%", center: ["50%", title ? "56%" : "52%"] },
+        polar: { radius: isSmall ? "58%" : seriesRadialRadius, center: ["50%", title ? "52%" : "50%"] },
         angleAxis: { type: "category", data: userLabels, ...axisTick },
         radiusAxis: { ...axisTick },
         series: datasets.map((ds, i) => ({
@@ -1236,42 +1841,42 @@ function buildEChartsOption(
     case "pie-basic": {
       const v = userVals(0);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend,
+        backgroundColor: bg, color: palette, title: titleCfg, legend: categoryLegend,
         tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
-        series: [{ type: "pie", radius: "60%", center: ["50%", "55%"], data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), itemStyle: { borderRadius: 6, borderColor: bg, borderWidth: 2 }, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.3)" } } }],
+        series: [{ type: "pie", radius: categoryPieOuterRadius, center: [categoryChartCenterX, "52%"], data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), itemStyle: { borderRadius: 6, borderColor: bg, borderWidth: 2 }, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.3)" } } }],
       };
     }
 
     case "pie-doughnut": {
       const v = userVals(0);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend,
+        backgroundColor: bg, color: palette, title: titleCfg, legend: categoryLegend,
         tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
-        series: [{ type: "pie", radius: ["40%", "68%"], center: ["50%", "55%"], data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), itemStyle: { borderRadius: 8, borderColor: bg, borderWidth: 3 }, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, emphasis: { itemStyle: { shadowBlur: 12, shadowColor: "rgba(0,0,0,0.3)" } } }],
+        series: [{ type: "pie", radius: ["36%", categoryPieOuterRadius], center: [categoryChartCenterX, "52%"], data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), itemStyle: { borderRadius: 8, borderColor: bg, borderWidth: 3 }, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, emphasis: { itemStyle: { shadowBlur: 12, shadowColor: "rgba(0,0,0,0.3)" } } }],
       };
     }
 
     case "pie-half": {
       const v = userVals(0);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend: { ...legend, bottom: 0 },
+        backgroundColor: bg, color: palette, title: titleCfg, legend: { ...categoryLegend, bottom: 0 },
         tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
-        series: [{ type: "pie", radius: ["40%", "70%"], center: ["50%", "65%"], startAngle: 180, endAngle: 360, data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), itemStyle: { borderRadius: 4, borderColor: bg, borderWidth: 2 }, label: { color: fg, fontFamily: "Inter", fontSize: 11 } }],
+        series: [{ type: "pie", radius: ["40%", categoryPieOuterRadius], center: [categoryChartCenterX, "65%"], startAngle: 180, endAngle: 360, data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), itemStyle: { borderRadius: 4, borderColor: bg, borderWidth: 2 }, label: { color: fg, fontFamily: "Inter", fontSize: 11 } }],
       };
     }
 
     case "pie-rose": {
       const v = userVals(0);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend,
+        backgroundColor: bg, color: palette, title: titleCfg, legend: categoryLegend,
         tooltip: { trigger: "item", formatter: "{b}: {c}" },
-        series: [{ type: "pie", radius: ["15%", "65%"], center: ["50%", "55%"], roseType: "area" as any, data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), label: { color: fg, fontFamily: "Inter", fontSize: 10 }, itemStyle: { borderRadius: 4, borderColor: bg, borderWidth: 2 } }],
+        series: [{ type: "pie", radius: ["15%", categoryPieOuterRadius], center: [categoryChartCenterX, "52%"], roseType: "area" as any, data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0 })), label: { color: fg, fontFamily: "Inter", fontSize: 10 }, itemStyle: { borderRadius: 4, borderColor: bg, borderWidth: 2 } }],
       };
     }
 
     case "pie-scrollable": {
-      const items = [...userLabels, ...["Extra A", "Extra B", "Extra C", "Extra D"]];
-      const v = items.map(() => rand(10, 100));
+      const items = userLabels;
+      const v = userVals(0);
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         legend: { type: "scroll", orient: "vertical", right: 12, top: title ? 52 : 16, bottom: 20, textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 } },
@@ -1291,13 +1896,16 @@ function buildEChartsOption(
     }
 
     case "pie-referer": {
-      const refs = [{ name: "Direct", value: 335 }, { name: "Mail", value: 310 }, { name: "Affiliate", value: 274 }, { name: "Video", value: 235 }, { name: "Search", value: 400 }];
+      const refValues = userVals(0);
+      const refs = userLabels.map((name, index) => ({ name, value: refValues[index] ?? 0 }));
+      const groupA = refs.filter((_, index) => index % 2 === 0).reduce((sum, item) => sum + item.value, 0);
+      const groupB = refs.filter((_, index) => index % 2 === 1).reduce((sum, item) => sum + item.value, 0);
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Referer of Website", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
         legend: { show: false },
         tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
         series: [
-          { type: "pie", radius: ["0%", "30%"], label: { position: "inner", color: "#fff", fontSize: 10, fontFamily: "Inter" }, data: [{ name: "Direct+Affiliate", value: 335 + 274, itemStyle: { color: palette[0] } }, { name: "Indirect", value: 310 + 235 + 400, itemStyle: { color: palette[1] } }], itemStyle: { borderColor: bg, borderWidth: 2 } },
+          { type: "pie", radius: ["0%", "30%"], label: { position: "inner", color: "#fff", fontSize: 10, fontFamily: "Inter" }, data: [{ name: "Group A", value: groupA, itemStyle: { color: palette[0] } }, { name: "Group B", value: groupB, itemStyle: { color: palette[1 % palette.length] } }], itemStyle: { borderColor: bg, borderWidth: 2 } },
           { type: "pie", radius: ["35%", "60%"], label: { color: fg, fontFamily: "Inter", fontSize: 11 }, data: refs.map((r, i) => ({ ...r, itemStyle: { color: palette[i % palette.length] } })), itemStyle: { borderRadius: 4, borderColor: bg, borderWidth: 2 } },
         ],
       };
@@ -1307,17 +1915,8 @@ function buildEChartsOption(
       // roseType:'radius' encodes value as slice length (not just angle) — a second
       // Nightingale variant alongside pie-rose's roseType:'area', with fixed reference
       // data instead of the official example's live-fetched browser stats.
-      const browserData = [
-        { name: "Chrome", value: 65.2 },
-        { name: "Safari", value: 18.9 },
-        { name: "Edge", value: 5.1 },
-        { name: "Samsung Internet", value: 2.9 },
-        { name: "Firefox", value: 2.7 },
-        { name: "Opera", value: 1.7 },
-        { name: "UC Browser", value: 0.9 },
-        { name: "IE", value: 0.6 },
-        { name: "Other", value: 2.0 },
-      ];
+      const browserValues = userVals(0);
+      const browserData = userLabels.map((name, index) => ({ name, value: browserValues[index] ?? 0 }));
       return {
         backgroundColor: bg, color: palette,
         title: titleCfg || { text: "Proportion of Browsers", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
@@ -1338,9 +1937,9 @@ function buildEChartsOption(
         backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip: { trigger: "item" }, grid,
         xAxis: { type: "value", ...axisTick },
         yAxis: { type: "value", ...axisTick },
-        series: datasets.map((ds, i) => ({
-          name: ds.name, type: "scatter",
-          data: ds.data.map((v, j) => [j + rand(0, 3), v + rand(-5, 5)]),
+        series: specialData.scatter.map((series, i) => ({
+          name: series.name, type: "scatter",
+          data: series.points.map(point => [point.x, point.y]),
           symbolSize: 12, itemStyle: { color: palette[i % palette.length], opacity: 0.8 },
         })),
       };
@@ -1352,37 +1951,87 @@ function buildEChartsOption(
         // category's axis label) don't get clipped right at the plot edge.
         xAxis: { type: "value", boundaryGap: ["8%", "8%"], ...axisTick },
         yAxis: { type: "value", boundaryGap: ["8%", "8%"], ...axisTick },
-        series: datasets.map((ds, i) => ({
-          name: ds.name, type: "scatter",
-          data: ds.data.map((v, j) => [j + 1, v, Math.max(8, v * 0.4)]),
+        series: specialData.bubble.map((series, i) => ({
+          name: series.name, type: "scatter",
+          data: series.points.map(point => [point.x, point.y, point.size]),
           symbolSize: (d: number[]) => d[2],
           itemStyle: { color: palette[i % palette.length], opacity: 0.7 },
         })),
       };
 
     case "scatter-distribution": {
-      const heights = Array.from({ length: 60 }, () => rand(150, 200));
-      const weights = heights.map(h => Math.round(h * 0.45 - 20 + rand(-8, 8)));
+      const distributionSeries = specialData.scatter.length ? specialData.scatter : createDefaultScatterSeries();
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Height vs Weight", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: { trigger: "item", formatter: (p: any) => `Height: ${p.data[0]}cm<br/>Weight: ${p.data[1]}kg` }, grid: gridFull,
-        xAxis: { type: "value", name: "Height (cm)", nameTextStyle: { color: fg, fontFamily: "Inter" }, min: 145, max: 205, ...axisTick },
+        xAxis: { type: "value", name: "Height (cm)", nameTextStyle: { color: fg, fontFamily: "Inter" }, scale: true, ...axisTick },
         yAxis: { type: "value", name: "Weight (kg)", nameTextStyle: { color: fg, fontFamily: "Inter" }, ...axisTick },
-        series: [{ name: "Person", type: "scatter", data: heights.map((h, i) => [h, weights[i]]), symbolSize: 8, itemStyle: { color: palette[0], opacity: 0.7 } }],
-        legend: { show: false },
+        series: distributionSeries.map((series, index) => ({
+          name: series.name,
+          type: "scatter" as const,
+          data: series.points.map(point => [point.x, point.y]),
+          symbolSize: 8,
+          itemStyle: { color: palette[index % palette.length], opacity: 0.7 },
+        })),
+        legend,
       };
     }
 
     case "scatter-single": {
-      const hours = ["12am", "1am", "2am", "3am", "4am", "5am", "6am", "7am", "8am", "9am", "10am", "11am", "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "7pm", "8pm", "9pm", "10pm", "11pm"];
-      const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-      const data = days.flatMap((_, di) => Array.from({ length: rand(3, 8) }, () => [rand(0, 23), di, rand(1, 10)]));
+      const singleCells = specialData.singleAxisScatter.length ? specialData.singleAxisScatter : createDefaultSingleAxisScatter();
+      const hours = [...new Set(singleCells.map(cell => cell.x))];
+      const days = [...new Set(singleCells.map(cell => cell.y))];
+      const hourIndex = new Map(hours.map((hour, index) => [hour, index]));
+      const chartTop = title ? 12 : 2;
+      const chartHeight = title ? 84 : 96;
+      const axisLeft = isSmall ? 72 : 126;
+      const dayTitles = days.map((day, index) => ({
+        text: day,
+        left: isSmall ? 4 : 12,
+        top: `${chartTop + ((index + 0.5) * chartHeight) / Math.max(1, days.length)}%`,
+        textBaseline: "middle",
+        textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 9 : 11, fontWeight: 500 },
+      }));
+      const singleAxes = days.map((_, index) => ({
+        left: axisLeft,
+        right: isSmall ? 6 : 18,
+        type: "category" as const,
+        boundaryGap: false,
+        data: hours,
+        top: `${chartTop + (index * chartHeight) / Math.max(1, days.length) + 1}%`,
+        height: `${chartHeight / Math.max(1, days.length) - 2}%`,
+        axisLabel: {
+          interval: isSmall ? 5 : 2,
+          color: fg,
+          fontFamily: "Inter",
+          fontSize: isSmall ? 8 : 10,
+          hideOverlap: true,
+        },
+        axisLine: { lineStyle: { color: axisC } },
+        axisTick: { show: false },
+        splitLine: { show: false },
+      }));
+      const singleSeries = days.map((day, index) => ({
+        name: day,
+        singleAxisIndex: index,
+        coordinateSystem: "singleAxis" as const,
+        type: "scatter" as const,
+        data: singleCells
+          .filter(cell => cell.y === day)
+          .map(cell => [hourIndex.get(cell.x) ?? 0, cell.value]),
+        symbolSize: (dataItem: number[]) => Math.max(2, dataItem[1] * (isSmall ? 2.4 : 4)),
+        itemStyle: { color: palette[index % palette.length], opacity: 0.78 },
+      }));
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip: { trigger: "item" },
-        grid: { ...gridFull, top: title ? 60 : 40, bottom: 60, left: Math.max(...days.map(d => d.length)) * 7 + (isSmall ? 16 : 24) },
-        xAxis: { type: "category", data: hours, ...axisTick, splitLine: { show: true, lineStyle: { color: axisC } } },
-        yAxis: { type: "category", data: days, ...axisTick, splitLine: { show: true, lineStyle: { color: axisC } } },
-        series: [{ type: "scatter", data: data.map(([h, d, s]) => ({ value: [h, d], symbolSize: s * 4, itemStyle: { color: palette[d % palette.length], opacity: 0.7 } })) }],
+        backgroundColor: bg,
+        color: palette,
+        title: [...(titleCfg ? [titleCfg] : []), ...dayTitles],
+        tooltip: {
+          position: "top",
+          formatter: (params: any) => `${params.seriesName}<br/>${hours[params.value[0]]}: ${params.value[1]}`,
+        },
+        singleAxis: singleAxes,
+        series: singleSeries,
         legend: { show: false },
       };
     }
@@ -1390,15 +2039,19 @@ function buildEChartsOption(
     case "scatter-jitter": {
       // category-axis `jitter` (ECharts 6.0+) spreads overlapping points sideways within
       // their category band instead of letting them stack on the exact same x position.
-      const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-      const data: [number, number][] = [];
-      days.forEach((_, di) => { const n = rand(80, 150); for (let i = 0; i < n; i++) data.push([di, +(rand(0, 100) / 10).toFixed(1)]); });
+      const jitterCells = specialData.jitterScatter.length ? specialData.jitterScatter : createDefaultJitterScatter();
+      const days = [...new Set(jitterCells.map(cell => cell.x))];
+      const dayIndex = new Map(days.map((day, index) => [day, index]));
+      const data = jitterCells.map(cell => [dayIndex.get(cell.x) ?? 0, cell.value]);
+      const jitterValues = jitterCells.map(cell => cell.value);
+      const jitterMin = Math.min(0, ...jitterValues);
+      const jitterMax = Math.max(1, ...jitterValues);
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Scatter with Jittering", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: { trigger: "item" },
         grid: gridFull,
         xAxis: { type: "category", data: days, jitter: isSmall ? 12 : 24, ...axisTick },
-        yAxis: { type: "value", min: 0, max: 10, ...axisTick },
+        yAxis: { type: "value", min: jitterMin, max: jitterMax, ...axisTick },
         series: [{ name: "Sample", type: "scatter", data, colorBy: "data", symbolSize: 6, itemStyle: { opacity: 0.45 } }],
         legend: { show: false },
       };
@@ -1407,18 +2060,17 @@ function buildEChartsOption(
     // ── CANDLESTICK ───────────────────────────────────────────────────────
     case "candle-basic":
     case "candle-large": {
-      const count = chartId === "candle-large" ? 120 : 40;
-      const ohlc = genOHLC(count, rand);
+      const ohlc = chartId === "candle-large" ? specialData.candleLarge : specialData.candleBasic;
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
         grid: { ...gridFull, bottom: 60 },
-        xAxis: { type: "category", data: ohlc.map(d => d[0]), ...axisTick, min: "dataMin", max: "dataMax" },
+        xAxis: { type: "category", data: ohlc.map(d => d.date), ...axisTick, min: "dataMin", max: "dataMax" },
         yAxis: { type: "value", scale: true, ...axisTick },
         dataZoom: [{ type: "inside", start: 70, end: 100 }, { type: "slider", bottom: 16, height: 20 }],
         series: [{
           type: "candlestick",
-          data: ohlc.map(d => [d[1], d[2], d[3], d[4]]),
+          data: ohlc.map(d => [d.open, d.close, Math.min(d.low, d.open, d.close), Math.max(d.high, d.open, d.close)]),
           itemStyle: {
             color: palette[2] ?? "#10b981", color0: palette[3] ?? "#ef4444",
             borderColor: palette[2] ?? "#10b981", borderColor0: palette[3] ?? "#ef4444",
@@ -1433,20 +2085,19 @@ function buildEChartsOption(
       const maxV = Math.max(...datasets.flatMap(d => d.data)) * 1.2 || 100;
       return {
         backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip: {},
-        radar: { indicator: userLabels.map(l => ({ name: l, max: maxV })), axisName: { color: fg, fontFamily: "Inter", fontSize: 11 }, splitLine: { lineStyle: { color: axisC } }, splitArea: { areaStyle: { color: ["transparent"] } }, axisLine: { lineStyle: { color: axisC } } },
+        radar: { center: [seriesChartCenterX, "52%"], radius: isSmall ? "56%" : seriesRadialRadius, indicator: userLabels.map(l => ({ name: l, max: maxV })), axisName: { color: fg, fontFamily: "Inter", fontSize: 11 }, splitLine: { lineStyle: { color: axisC } }, splitArea: { areaStyle: { color: ["transparent"] } }, axisLine: { lineStyle: { color: axisC } } },
         series: [{ type: "radar", data: datasets.map((ds, i) => ({ name: ds.name, value: ds.data, itemStyle: { color: palette[i % palette.length] }, areaStyle: { opacity: 0.2 }, lineStyle: { width: 2 } })) }],
       };
     }
 
     case "radar-browsers": {
-      const browsers = ["Chrome", "Firefox", "Safari", "Edge", "Opera", "IE"];
-      const share = [65.2, 15.4, 9.3, 4.8, 3.1, 2.2];
+      const maxShare = Math.max(1, ...datasets.flatMap(dataset => dataset.data)) * 1.1;
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Browser Market Share", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: {},
-        radar: { indicator: browsers.map((b, i) => ({ name: `${b}\n${share[i]}%`, max: 70 })), axisName: { color: fg, fontFamily: "Inter", fontSize: 11 }, splitLine: { lineStyle: { color: axisC } }, splitArea: { areaStyle: { color: ["transparent"] } } },
-        series: [{ type: "radar", data: [{ name: "Share (%)", value: share, itemStyle: { color: palette[0] }, areaStyle: { opacity: 0.25 }, lineStyle: { width: 2.5 } }] }],
-        legend: { show: false },
+        radar: { center: [seriesChartCenterX, "52%"], radius: isSmall ? "56%" : seriesRadialRadius, indicator: userLabels.map(label => ({ name: label, max: maxShare })), axisName: { color: fg, fontFamily: "Inter", fontSize: 11 }, splitLine: { lineStyle: { color: axisC } }, splitArea: { areaStyle: { color: ["transparent"] } } },
+        series: [{ type: "radar", data: datasets.map((dataset, index) => ({ name: dataset.name, value: dataset.data, itemStyle: { color: palette[index % palette.length] }, areaStyle: { opacity: 0.25 }, lineStyle: { width: 2.5 } })) }],
+        legend,
       };
     }
 
@@ -1454,58 +2105,64 @@ function buildEChartsOption(
       // Each city's series holds many daily readings (one radar polygon per day) instead
       // of a single shape — the overlapping translucent polygons show a month's variation
       // at a glance, matching the official "AQI - Radar" technique.
-      const indicators = [{ name: "AQI", max: 300 }, { name: "PM2.5", max: 250 }, { name: "PM10", max: 300 }, { name: "CO", max: 5 }, { name: "NO2", max: 200 }, { name: "SO2", max: 100 }];
-      const cities = ["Beijing", "Shanghai", "Guangzhou"];
-      const genMonth = () => Array.from({ length: 24 }, () => [rand(20, 260), rand(5, 220), rand(20, 280), +(rand(3, 48) / 10).toFixed(1), rand(10, 120), rand(5, 70)]);
+      const indicatorMax = userLabels.map((_, indicatorIndex) =>
+        Math.max(1, ...datasets.map(dataset => dataset.data[indicatorIndex] ?? 0)) * 1.15
+      );
+      const cities = datasets.map(dataset => dataset.name);
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "AQI by City", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: {},
-        legend: { bottom: 4, left: "center", data: cities, itemGap: 20, textStyle: { color: fg, fontFamily: "Inter", fontSize: 12 }, selectedMode: "single" },
+        legend: { ...legendAxisSafe, data: cities, selectedMode: "single" },
         radar: {
-          indicator: indicators, shape: "circle", splitNumber: 5,
+          center: ["50%", "48%"], radius: isSmall ? "54%" : seriesRadialRadius,
+          indicator: userLabels.map((name, index) => ({ name, max: indicatorMax[index] })), shape: "circle", splitNumber: 5,
           axisName: { color: fg, fontFamily: "Inter", fontSize: 11 },
           splitLine: { lineStyle: { color: axisC } }, splitArea: { show: false }, axisLine: { lineStyle: { color: axisC } },
         },
-        series: cities.map((city, i) => ({
-          name: city, type: "radar" as const, symbol: "none",
+        series: datasets.map((dataset, i) => ({
+          name: dataset.name, type: "radar" as const, symbol: "none",
           lineStyle: { width: 1, opacity: 0.5, color: palette[i % palette.length] },
           itemStyle: { color: palette[i % palette.length] },
           areaStyle: { opacity: 0.06 },
-          data: genMonth().map(value => ({ value })),
+          data: [{ name: dataset.name, value: dataset.data }],
         })),
       };
     }
 
     // ── HEATMAP ───────────────────────────────────────────────────────────
     case "heat-cartesian": {
-      const days2 = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-      const hrs = Array.from({ length: 24 }, (_, i) => `${i}:00`);
-      const hData = days2.flatMap((_, di) => hrs.map((_, hi) => [hi, di, rand(0, 100)]));
+      const heatCells = specialData.cartesianHeatmap.length ? specialData.cartesianHeatmap : createDefaultCartesianHeatmap();
+      const hrs = [...new Set(heatCells.map(cell => cell.x))];
+      const days2 = [...new Set(heatCells.map(cell => cell.y))];
+      const xIndex = new Map(hrs.map((label, index) => [label, index]));
+      const yIndex = new Map(days2.map((label, index) => [label, index]));
+      const hData = heatCells.map(cell => [xIndex.get(cell.x) ?? 0, yIndex.get(cell.y) ?? 0, cell.value]);
+      const heatMin = Math.min(...heatCells.map(cell => cell.value));
+      const heatMax = Math.max(...heatCells.map(cell => cell.value));
       return {
         backgroundColor: bg, color: palette, title: titleCfg,
         tooltip: { position: "top" },
         grid: { ...gridFull, left: 60, bottom: 40 },
         xAxis: { type: "category", data: hrs, splitArea: { show: true }, ...axisTick },
         yAxis: { type: "category", data: days2, splitArea: { show: true }, ...axisTick },
-        visualMap: { min: 0, max: 100, calculable: true, orient: "horizontal", left: "center", bottom: 0, inRange: { color: [palette[0] + "20", palette[0]] }, textStyle: { color: fg } },
+        visualMap: { min: heatMin, max: heatMax === heatMin ? heatMin + 1 : heatMax, calculable: true, orient: "horizontal", left: "center", bottom: 0, inRange: { color: [palette[0] + "20", palette[0]] }, textStyle: { color: fg } },
         series: [{ type: "heatmap", data: hData, label: { show: false }, emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.5)" } } }],
         legend: { show: false },
       };
     }
 
     case "heat-calendar": {
-      const year = 2024;
-      const start = new Date(year, 0, 1), end = new Date(year, 11, 31);
-      const calData: [string, number][] = [];
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        calData.push([ds, rand(0, 1000)]);
-      }
+      const calendarPoints = specialData.calendarHeatmap.length ? specialData.calendarHeatmap : createDefaultCalendarHeatmap();
+      const calData: [string, number][] = calendarPoints.map(point => [point.date, point.value]);
+      const calendarMin = Math.min(...calendarPoints.map(point => point.value));
+      const calendarMax = Math.max(...calendarPoints.map(point => point.value));
+      const calendarRange = [calendarPoints[0].date, calendarPoints[calendarPoints.length - 1].date];
+      const year = calendarPoints[0].date.slice(0, 4);
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: `Activity ${year}`, left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: { formatter: (p: any) => `${p.data[0]}: ${p.data[1]}` },
-        visualMap: { show: true, min: 0, max: 1000, calculable: true, orient: "horizontal", left: "center", bottom: 16, inRange: { color: [palette[0] + "20", palette[0]] }, textStyle: { color: fg } },
-        calendar: { top: title ? 64 : 48, left: 32, right: 16, cellSize: ["auto", 14], range: year, itemStyle: { borderWidth: 1, borderColor: bg }, yearLabel: { show: false }, monthLabel: { color: fg, fontFamily: "Inter", fontSize: 11 }, dayLabel: { color: fg, fontFamily: "Inter", fontSize: 10 } },
+        visualMap: { show: true, min: calendarMin, max: calendarMax === calendarMin ? calendarMin + 1 : calendarMax, calculable: true, orient: "horizontal", left: "center", bottom: 16, inRange: { color: [palette[0] + "20", palette[0]] }, textStyle: { color: fg } },
+        calendar: { top: title ? 64 : 48, left: 32, right: 16, cellSize: ["auto", 14], range: calendarRange, itemStyle: { borderWidth: 1, borderColor: bg }, yearLabel: { show: false }, monthLabel: { color: fg, fontFamily: "Inter", fontSize: 11 }, dayLabel: { color: fg, fontFamily: "Inter", fontSize: 10 } },
         series: [{ type: "heatmap", coordinateSystem: "calendar", data: calData }],
         legend: { show: false },
       };
@@ -1515,11 +2172,13 @@ function buildEChartsOption(
       // ~10,000 cells generated from a few summed sine waves (a cheap stand-in for the
       // official example's Perlin noise) so the field reads as organic blobs rather than
       // pure static, while staying within this app's plain rand()-based generator style.
-      const W = 100, H = 100;
+      const W = Math.max(10, Math.min(200, Math.round(specialData.generator.heatWidth)));
+      const H = Math.max(10, Math.min(200, Math.round(specialData.generator.heatHeight)));
+      const heatRand = createSeededRand(`heat-large-${specialData.generator.seed}`).rand;
       const hlData: number[][] = [];
       for (let i = 0; i <= W; i++) {
         for (let j = 0; j <= H; j++) {
-          const v = Math.sin(i / 14) * Math.cos(j / 11) + Math.sin(i / 7 + j / 9) * 0.4 + rand(-8, 8) / 100;
+          const v = Math.sin(i / 14) * Math.cos(j / 11) + Math.sin(i / 7 + j / 9) * 0.4 + heatRand(-8, 8) / 100;
           hlData.push([i, j, +Math.max(0, Math.min(1, (v + 1.4) / 2.8)).toFixed(2)]);
         }
       }
@@ -1532,7 +2191,15 @@ function buildEChartsOption(
         visualMap: {
           min: 0, max: 1, calculable: true, realtime: false, orient: "horizontal", left: "center", bottom: 4,
           textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
-          inRange: { color: ["#313695", "#4575b4", "#74add1", "#abd9e9", "#e0f3f8", "#ffffbf", "#fee090", "#fdae61", "#f46d43", "#d73027", "#a50026"] },
+          inRange: {
+            color: [
+              palette[2 % palette.length],
+              palette[0],
+              theme === "dark" ? "#26263f" : "#f8fafc",
+              palette[1 % palette.length],
+              palette[3 % palette.length],
+            ],
+          },
         },
         series: [{ name: "Field", type: "heatmap", data: hlData, progressive: 1000, animation: false }],
         legend: { show: false },
@@ -1544,32 +2211,26 @@ function buildEChartsOption(
       // Symmetric correlation matrix (diagonal = 1) rendered on ECharts 6's `matrix`
       // coordinate system — a heatmap series plotted against matrix row/col headers
       // instead of a category cartesian grid.
-      const vars = ["AAPL", "MSFT", "GOOG", "AMZN", "TSLA", "NVDA", "META", "JPM"];
-      const n = vars.length;
-      const corr: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
-      for (let i = 0; i < n; i++) {
-        corr[i][i] = 1;
-        for (let j = i + 1; j < n; j++) {
-          const v = +(rand(-100, 100) / 100).toFixed(2);
-          corr[i][j] = v; corr[j][i] = v;
-        }
-      }
-      const cellData: [number, number, number][] = [];
-      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) cellData.push([j, i, corr[i][j]]);
+      const matrixCells = specialData.covarianceMatrix.length ? specialData.covarianceMatrix : createDefaultCovarianceMatrix();
+      const xVars = [...new Set(matrixCells.map(cell => cell.x))];
+      const yVars = [...new Set(matrixCells.map(cell => cell.y))];
+      const xVarIndex = new Map(xVars.map((label, index) => [label, index]));
+      const yVarIndex = new Map(yVars.map((label, index) => [label, index]));
+      const cellData: [number, number, number][] = matrixCells.map(cell => [xVarIndex.get(cell.x) ?? 0, yVarIndex.get(cell.y) ?? 0, cell.value]);
       const headerFontSz = isSmall ? 8 : 10;
       return {
         backgroundColor: bg,
         title: titleCfg || { text: "Covariance Matrix", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
-        tooltip: { formatter: (p: any) => `${vars[p.value[0]]} × ${vars[p.value[1]]}: ${p.value[2]}` },
+        tooltip: { formatter: (p: any) => `${xVars[p.value[0]]} × ${yVars[p.value[1]]}: ${p.value[2]}` },
         visualMap: {
           min: -1, max: 1, calculable: true, orient: "horizontal", left: "center", bottom: 4,
-          inRange: { color: ["#3b82f6", bg, palette[3] ?? "#ef4444"] },
+          inRange: { color: [palette[2 % palette.length], bg, palette[0]] },
           textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
         },
         matrix: {
           top: title ? 56 : 36, left: isSmall ? 56 : 76, right: isSmall ? 8 : 16, bottom: 40,
-          x: { data: vars, label: { color: fg, fontFamily: "Inter", fontSize: headerFontSz } },
-          y: { data: vars, label: { color: fg, fontFamily: "Inter", fontSize: headerFontSz } },
+          x: { data: xVars, label: { color: fg, fontFamily: "Inter", fontSize: headerFontSz } },
+          y: { data: yVars, label: { color: fg, fontFamily: "Inter", fontSize: headerFontSz } },
           body: { itemStyle: { borderColor: axisC, borderWidth: 1 } },
         } as any,
         series: [{
@@ -1588,23 +2249,14 @@ function buildEChartsOption(
       // until that registration resolves). Synthetic per-state values (not real 2012
       // census figures) generated with the chart's seeded rand, matching this app's
       // established pattern for static-demo charts.
-      const stateNames = [
-        "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut",
-        "Delaware", "District of Columbia", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois",
-        "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts",
-        "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
-        "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota",
-        "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
-        "South Dakota", "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
-        "West Virginia", "Wisconsin", "Wyoming", "Puerto Rico",
-      ];
-      const mapData = stateNames.map(name => ({ name, value: rand(6, 390) }));
+      const mapData = specialData.geoRegions.map(region => ({ name: region.name, value: region.value }));
+      const mapMax = Math.max(1, ...specialData.geoRegions.map(region => region.value));
       return {
         backgroundColor: bg,
         title: titleCfg || { text: "USA Population", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
         tooltip: { trigger: "item", formatter: (p: any) => `${p.name}: ${p.value ?? "—"}` },
         visualMap: {
-          min: 0, max: 400, left: 12, top: title ? topPad + 8 : 12, bottom: 12, calculable: !isSmall,
+          min: 0, max: mapMax, left: 12, top: title ? topPad + 8 : 12, bottom: 12, calculable: !isSmall,
           itemWidth: isSmall ? 8 : 14, itemHeight: isSmall ? 60 : 120,
           inRange: { color: ["#e0e7ff", palette[0] ?? "#6366f1"] },
           textStyle: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 9 : 11 },
@@ -1626,18 +2278,10 @@ function buildEChartsOption(
       // -registered `USA` map so it shares loadUSAMap() with map-usa-population instead
       // of needing a second GeoJSON asset — a cross-country road-trip route between real
       // US city coordinates.
-      const cities: [string, number, number][] = [
-        ["New York", -74.006, 40.7128], ["Boston", -71.0589, 42.3601],
-        ["Chicago", -87.6298, 41.8781], ["Denver", -104.9903, 39.7392],
-        ["Salt Lake City", -111.891, 40.7608], ["Seattle", -122.3321, 47.6062],
-        ["San Francisco", -122.4194, 37.7749], ["Los Angeles", -118.2437, 34.0522],
-        ["Phoenix", -112.074, 33.4484], ["Dallas", -96.797, 32.7767],
-        ["Houston", -95.3698, 29.7604], ["Atlanta", -84.388, 33.749],
-        ["Miami", -80.1918, 25.7617], ["Washington DC", -77.0369, 38.9072],
-      ];
-      const nodes = cities.map(([name, lon, lat]) => ({ name, value: [lon, lat], symbolSize: isSmall ? 6 : 9 }));
-      const edges = cities.slice(0, -1).map((c, i) => ({ source: c[0], target: cities[i + 1][0] }));
-      edges.push({ source: cities[cities.length - 1][0], target: cities[0][0] });
+      const cities = specialData.geoRoute.length ? specialData.geoRoute : createDefaultGeoRoute();
+      const nodes = cities.map(city => ({ name: city.name, value: [city.longitude, city.latitude], symbolSize: isSmall ? 6 : 9 }));
+      const edges = cities.slice(0, -1).map((city, i) => ({ source: city.name, target: cities[i + 1].name }));
+      if (cities.length > 2) edges.push({ source: cities[cities.length - 1].name, target: cities[0].name });
       return {
         backgroundColor: bg,
         title: titleCfg || { text: "Geo Graph", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
@@ -1668,7 +2312,8 @@ function buildEChartsOption(
       // and a mini geo cell highlighting that state. `matrix`+per-cell `grid`/`geo` with
       // coord:[col,row] is an ECharts 6.0 feature — types only expose matrixIndex/matrixId,
       // but the runtime API matches the official example (confirmed via echarts 6.1.0 docs).
-      const regions = ["California", "Texas", "New York", "Florida", "Washington", "Colorado", "Georgia", "Illinois"];
+      const regionRows = specialData.geoRegions.slice(0, 8);
+      const regions = regionRows.map(region => region.name);
       const metrics = ["Revenue", "Growth"];
       const years = ["2024", "2023"];
       const colHeaders = ["State", ...metrics, "Location"];
@@ -1676,8 +2321,10 @@ function buildEChartsOption(
       const geoColIdx = colHeaders.length - 1;
       const barColors = [palette[0] ?? "#6366f1", palette[1] ?? "#f59e0b"];
 
-      const dataByYear: Record<string, number[][]> = {};
-      years.forEach(y => { dataByYear[y] = metrics.map(() => regions.map(() => rand(20, 200))); });
+      const dataByYear: Record<string, number[][]> = {
+        "2024": [regionRows.map(region => region.value), regionRows.map(region => region.secondary)],
+        "2023": [regionRows.map(region => Math.round(region.value * 0.82)), regionRows.map(region => Math.round(region.secondary * 0.88))],
+      };
 
       const matrixBody: any[] = regions.map((name, r) => ({ value: name, coord: [regionColIdx, r] }));
       const gridArr: any[] = [], xAxisArr: any[] = [], yAxisArr: any[] = [], seriesArr: any[] = [];
@@ -1730,32 +2377,58 @@ function buildEChartsOption(
       } as any;
     }
 
-    case "lines-synthetic": {
+    case "lines-ny": {
       // Official example streams ~1M real NYC street segments from 32 binary chunk files
       // fetched over XHR. Reinterpreted as a self-contained rendering-technique demo (no
       // external asset, no geo map) — a synthetic street-grid of 2-point `lines` series
       // entries, deterministic per the chart's seeded rand so the "randomness" (jitter) is
       // stable across renders while segment count stays exact (no probabilistic skipping).
-      const gridN = 110; // 2*(gridN+1)*gridN ≈ 24.4K segments — within the agreed 20K-50K range
-      const span = 1000;
+      const gridN = Math.max(10, Math.min(180, Math.round(specialData.generator.lineGrid)));
+      const span = Math.max(100, Math.min(10000, Math.round(specialData.generator.lineSpan)));
+      const lineRand = createSeededRand(`lines-ny-${specialData.generator.seed}`).rand;
       const step = span / gridN;
-      const jitter = () => (rand(-30, 30) / 100) * step;
+      const jitter = () => (lineRand(-30, 30) / 100) * step;
       const lineData: { coords: [number, number][] }[] = [];
+      const insideStreetShape = (x: number, y: number) => {
+        const normalizedY = Math.max(0, Math.min(1, y / span));
+        const normalizedX = x / span;
+        const center = 0.5 + Math.sin(normalizedY * Math.PI * 1.35) * 0.055;
+        const halfWidth = 0.055 + Math.sin(Math.PI * Math.pow(normalizedY, 0.85)) * 0.19;
+        return Math.abs(normalizedX - center) <= halfWidth;
+      };
       for (let r = 0; r <= gridN; r++) {
         const y = r * step + jitter();
         for (let cSeg = 0; cSeg < gridN; cSeg++) {
-          lineData.push({ coords: [[cSeg * step, y], [(cSeg + 1) * step, y + jitter()]] });
+          const x1 = cSeg * step;
+          const x2 = (cSeg + 1) * step;
+          if (insideStreetShape((x1 + x2) / 2, y)) {
+            lineData.push({ coords: [[x1, y], [x2, y + jitter()]] });
+          }
         }
       }
       for (let cIdx = 0; cIdx <= gridN; cIdx++) {
         const x = cIdx * step + jitter();
         for (let rSeg = 0; rSeg < gridN; rSeg++) {
-          lineData.push({ coords: [[x, rSeg * step], [x + jitter(), (rSeg + 1) * step]] });
+          const y1 = rSeg * step;
+          const y2 = (rSeg + 1) * step;
+          if (insideStreetShape(x, (y1 + y2) / 2)) {
+            lineData.push({ coords: [[x, y1], [x + jitter(), y2]] });
+          }
         }
       }
+      for (let index = 0; index < gridN * 2; index++) {
+        const y1 = (index / (gridN * 2)) * span;
+        const y2 = ((index + 1) / (gridN * 2)) * span;
+        const x1 = span * (0.34 + 0.28 * (y1 / span) + Math.sin(y1 / span * Math.PI * 2) * 0.025);
+        const x2 = span * (0.34 + 0.28 * (y2 / span) + Math.sin(y2 / span * Math.PI * 2) * 0.025);
+        if (insideStreetShape(x1, y1) || insideStreetShape(x2, y2)) lineData.push({ coords: [[x1, y1], [x2, y2]] });
+      }
+      const nyTitle = titleCfg
+        ? { ...titleCfg, textStyle: { ...(titleCfg.textStyle as object), color: "#fff" } }
+        : { text: "New York Streets — Large Lines", left: "center", top: 8, textStyle: { color: "#fff", fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } };
       return {
-        backgroundColor: bg,
-        title: titleCfg || { text: "Synthetic Large Lines", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        backgroundColor: "#111",
+        title: nyTitle,
         tooltip: { show: false },
         xAxis: { type: "value", min: 0, max: span, show: false },
         yAxis: { type: "value", min: 0, max: span, show: false, inverse: true },
@@ -1769,9 +2442,12 @@ function buildEChartsOption(
           // below) nothing ever ticks the later chunks, so only the first ~3000 lines were
           // drawn and the rest of the canvas stayed blank.
           progressive: 0,
-          silent: true, animation: false,
-          blendMode: theme === "dark" ? "lighter" : "source-over",
-          lineStyle: { color: palette[0] ?? "#6366f1", width: 0.6, opacity: theme === "dark" ? 0.35 : 0.55 },
+          large: true,
+          largeThreshold: 2000,
+          silent: true,
+          animation: false,
+          blendMode: "lighter",
+          lineStyle: { color: palette[0] ?? "#6366f1", width: 0.55, opacity: 0.42 },
           data: lineData,
         } as any],
         legend: { show: false },
@@ -1805,19 +2481,58 @@ function buildEChartsOption(
     }
 
     case "gauge-speed": {
-      const val = datasets[0]?.data[0] ?? 80;
+      const val = Math.max(0, Math.min(100, datasets[0]?.data[0] ?? 70));
+      const gaugeWidth = isSmall ? 18 : isMid ? 24 : 30;
+      const gaugeColors: [number, string][] = [
+        [0.3, "#67e0e3"],
+        [0.7, "#37a2da"],
+        [1, "#fd666d"],
+      ];
       return {
-        backgroundColor: bg, color: palette, title: titleCfg,
+        backgroundColor: bg,
+        color: palette,
+        title: titleCfg,
+        tooltip: { formatter: (params: any) => `${params.value} km/h` },
         series: [{
-          type: "gauge", min: 0, max: 240, splitNumber: 8,
-          axisLine: { lineStyle: { width: 15, color: [[0.25, palette[2] ?? "#10b981"], [0.5, palette[3] ?? "#f59e0b"], [0.75, "#f97316"], [1, palette[3] ?? "#ef4444"]] } },
-          pointer: { icon: "path://M12.8,0.7l12.3,42H0.5L12.8,0.7z", length: "12%", width: 20, offsetCenter: [0, "-60%"], itemStyle: { color: palette[0] } },
-          axisTick: { length: 12, lineStyle: { color: "auto", width: 2 } },
-          splitLine: { length: 20, lineStyle: { color: "auto", width: 5 } },
-          axisLabel: { color: fg, fontSize: 11, fontFamily: "Inter", distance: -36 },
-          title: { offsetCenter: [0, "-20%"], color: fg, fontFamily: "Inter", fontSize: 14 },
-          detail: { fontSize: 32, fontWeight: "bold", color: fg, fontFamily: "Inter", formatter: "{value} km/h" },
-          data: [{ value: val, name: "Speed" }],
+          type: "gauge",
+          min: 0,
+          max: 100,
+          splitNumber: 10,
+          center: ["50%", title ? "56%" : "52%"],
+          radius: isSmall ? "68%" : isMid ? "72%" : "76%",
+          axisLine: { lineStyle: { width: gaugeWidth, color: gaugeColors } },
+          pointer: {
+            length: "60%",
+            width: isSmall ? 4 : 6,
+            itemStyle: { color: "auto" },
+          },
+          axisTick: {
+            distance: -gaugeWidth,
+            length: isSmall ? 5 : 8,
+            lineStyle: { color: "#fff", width: isSmall ? 1.5 : 2 },
+          },
+          splitLine: {
+            distance: -gaugeWidth,
+            length: gaugeWidth,
+            lineStyle: { color: "#fff", width: isSmall ? 2 : 4 },
+          },
+          axisLabel: {
+            color: "inherit",
+            distance: isSmall ? 24 : isMid ? 32 : 40,
+            fontSize: isSmall ? 10 : isMid ? 14 : 20,
+            fontFamily: "Inter",
+          },
+          title: { show: false },
+          detail: {
+            valueAnimation: true,
+            formatter: "{value} km/h",
+            color: "inherit",
+            fontSize: isSmall ? 16 : isMid ? 22 : 28,
+            fontWeight: 600,
+            fontFamily: "Inter",
+            offsetCenter: [0, "40%"],
+          },
+          data: [{ value: val }],
         }],
         legend: { show: false },
       };
@@ -1845,13 +2560,8 @@ function buildEChartsOption(
 
     // ── TREE / GRAPH ──────────────────────────────────────────────────────
     case "tree-lr": {
-      const treeData = {
-        name: "Root", children: [
-          { name: "Branch A", children: [{ name: "Leaf 1" }, { name: "Leaf 2" }, { name: "Leaf 3" }] },
-          { name: "Branch B", children: [{ name: "Leaf 4" }, { name: "Leaf 5" }] },
-          { name: "Branch C", children: [{ name: "Leaf 6" }, { name: "Leaf 7" }, { name: "Leaf 8" }, { name: "Leaf 9" }] },
-        ],
-      };
+      const hierarchyRoots = hierarchyRowsToTree(specialData.hierarchy);
+      const treeData = hierarchyRoots.length === 1 ? hierarchyRoots[0] : { name: "Root", children: hierarchyRoots };
       return {
         backgroundColor: bg, title: titleCfg, tooltip: { trigger: "item", triggerOn: "mousemove" },
         series: [{
@@ -1868,31 +2578,89 @@ function buildEChartsOption(
     }
 
     case "treemap-basic": {
-      const v = userVals(0);
+      const gradientRoots = hierarchyRowsToGradientTree(specialData.hierarchy);
+      const gradientData = gradientRoots.length === 1 && gradientRoots[0].children?.length
+        ? gradientRoots[0].children
+        : gradientRoots;
+      const gradientColors = [
+        palette[2 % palette.length] ?? "#269f3c",
+        palette[0] ?? "#6366f1",
+        palette[1 % palette.length] ?? "#942e38",
+      ];
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, tooltip: { formatter: (p: any) => `${p.name}: ${p.value}` },
+        backgroundColor: bg,
+        title: titleCfg || { text: "Gradient Mapping", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } },
+        tooltip: {
+          formatter: (params: any) => {
+            const value = Array.isArray(params.value) ? params.value : [params.value, 0];
+            return `${params.name}<br/>Size: ${value[0]}<br/>Gradient: ${Number(value[1] ?? 0).toFixed(1)}`;
+          },
+        },
         series: [{
           type: "treemap",
-          data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? rand(10, 100), itemStyle: { color: palette[i % palette.length] } })),
-          width: "96%", height: title ? "78%" : "88%", top: title ? 52 : 8,
-          label: { show: true, color: "#fff", fontFamily: "Inter", fontSize: 12, fontWeight: "bold" },
-          breadcrumb: { show: false }, roam: false,
+          data: gradientData,
+          visualDimension: 1,
+          visualMin: -100,
+          visualMax: 100,
+          visualMinBound: -40,
+          visualMaxBound: 40,
+          color: gradientColors,
+          colorMappingBy: "value",
+          width: "96%",
+          height: title ? "76%" : "84%",
+          top: title ? 58 : 18,
+          left: "2%",
+          label: {
+            show: true,
+            color: "#fff",
+            fontFamily: "Inter",
+            fontSize: 11,
+            fontWeight: "bold",
+            formatter: "{b}",
+            textShadowColor: "rgba(0,0,0,.35)",
+            textShadowBlur: 3,
+          },
+          upperLabel: {
+            show: false,
+          },
+          itemStyle: { borderColor: bg, borderWidth: 1, gapWidth: 1 },
+          levels: [
+            { itemStyle: { borderColor: bg, borderWidth: 0, gapWidth: 5 } },
+            {
+              color: gradientColors,
+              colorMappingBy: "value",
+              upperLabel: { show: true, height: 24, color: "#fff", fontFamily: "Inter", fontSize: 11, fontWeight: "bold" },
+              itemStyle: { borderColor: bg, borderWidth: 2, gapWidth: 3 },
+            },
+            {
+              color: gradientColors,
+              colorMappingBy: "value",
+              colorSaturation: [0.35, 0.65],
+              itemStyle: { borderColor: bg, borderWidth: 1, gapWidth: 1, borderColorSaturation: 0.6 },
+            },
+          ],
+          breadcrumb: {
+            show: true,
+            bottom: 4,
+            height: 20,
+            itemStyle: { color: theme === "dark" ? "#374151" : "#e5e7eb", borderColor: axisC },
+            textStyle: { color: fg, fontFamily: "Inter", fontSize: 10 },
+          },
+          roam: false,
+          nodeClick: "zoomToNode",
         }],
         legend: { show: false },
       };
     }
 
     case "treemap-sunburst": {
-      const sunData = [
-        { name: "Category A", value: 40, children: [{ name: "A1", value: 20 }, { name: "A2", value: 20 }] },
-        { name: "Category B", value: 60, children: [{ name: "B1", value: 25 }, { name: "B2", value: 35 }] },
-        { name: "Category C", value: 30, children: [{ name: "C1", value: 15 }, { name: "C2", value: 15 }] },
-        { name: "Category D", value: 50, children: [{ name: "D1", value: 30 }, { name: "D2", value: 20 }] },
-      ];
-      const coloredData = sunData.map((d, i) => ({
-        ...d, itemStyle: { color: palette[i % palette.length] },
-        children: d.children.map((c, j) => ({ ...c, itemStyle: { color: palette[(i + j + 1) % palette.length] + "CC" } })),
-      }));
+      const sunData = hierarchyRowsToTree(specialData.hierarchy);
+      const colorHierarchy = (node: any, index: number): any => ({
+        ...node,
+        itemStyle: { color: palette[index % palette.length] },
+        ...(node.children ? { children: node.children.map((child: any, childIndex: number) => colorHierarchy(child, index + childIndex + 1)) } : {}),
+      });
+      const coloredData = sunData.map((node, index) => colorHierarchy(node, index));
       return {
         backgroundColor: bg, color: palette, title: titleCfg, tooltip: { formatter: (p: any) => `${p.name}: ${p.value}` },
         series: [{ type: "sunburst", data: coloredData, radius: ["15%", "70%"], center: ["50%", "55%"], label: { color: "#fff", fontFamily: "Inter", fontSize: 11 }, itemStyle: { borderColor: bg, borderWidth: 2 }, levels: [{ r0: "15%", r: "30%" }, { r0: "32%", r: "68%", label: { rotate: "tangential" } }] }],
@@ -1901,23 +2669,23 @@ function buildEChartsOption(
     }
 
     case "sankey-basic": {
-      const snNodes = ["A", "B", "C", "D", "E", "F"].map((n, i) => ({ name: n, itemStyle: { color: palette[i % palette.length] } }));
-      const snLinks = [{ source: "A", target: "C", value: 40 }, { source: "A", target: "D", value: 30 }, { source: "B", target: "C", value: 20 }, { source: "B", target: "D", value: 50 }, { source: "B", target: "E", value: 15 }, { source: "C", target: "E", value: 35 }, { source: "C", target: "F", value: 25 }, { source: "D", target: "E", value: 45 }, { source: "D", target: "F", value: 35 }];
-      // single-char labels: ~20px each side is enough
+      const snNodes = specialData.sankeyNodes.map((node, index) => ({ name: node.name, itemStyle: { color: palette[index % palette.length] } }));
+      const snLinks = specialData.sankeyLinks.map(link => ({ source: link.source, target: link.target, value: link.value }));
       const snLabelPad = (chars: number, fs = 12) => Math.ceil(chars * fs * 0.7) + 16;
+      const snMaxChars = Math.max(1, ...specialData.sankeyNodes.map(node => node.name.length));
       return {
         backgroundColor: bg, title: titleCfg, tooltip: { trigger: "item", triggerOn: "mousemove" },
-        series: [{ type: "sankey", data: snNodes, links: snLinks, left: snLabelPad(1), right: snLabelPad(1), top: title ? 52 : 20, bottom: 20, nodeWidth: 16, nodeGap: 12, emphasis: { focus: "adjacency" }, lineStyle: { color: "gradient", opacity: 0.4 }, label: { color: fg, fontFamily: "Inter", fontSize: 12 } }],
+        series: [{ type: "sankey", data: snNodes, links: snLinks, left: snLabelPad(snMaxChars), right: snLabelPad(snMaxChars), top: title ? 52 : 20, bottom: 20, nodeWidth: 16, nodeGap: 12, emphasis: { focus: "adjacency" }, lineStyle: { color: "gradient", opacity: 0.4 }, label: { color: fg, fontFamily: "Inter", fontSize: 12 } }],
         legend: { show: false },
       };
     }
 
     case "sankey-gradient": {
-      const sgNodes = ["Coal", "Natural Gas", "Oil", "Electricity", "Heat", "Industry", "Buildings", "Transport"].map((n, i) => ({ name: n, itemStyle: { color: palette[i % palette.length] } }));
-      const sgLinks = [{ source: "Coal", target: "Electricity", value: 50 }, { source: "Natural Gas", target: "Electricity", value: 30 }, { source: "Natural Gas", target: "Heat", value: 20 }, { source: "Oil", target: "Transport", value: 80 }, { source: "Oil", target: "Industry", value: 30 }, { source: "Electricity", target: "Industry", value: 40 }, { source: "Electricity", target: "Buildings", value: 35 }, { source: "Heat", target: "Buildings", value: 20 }];
+      const sgNodes = specialData.sankeyNodes.map((node, index) => ({ name: node.name, itemStyle: { color: palette[index % palette.length] } }));
+      const sgLinks = specialData.sankeyLinks.map(link => ({ source: link.source, target: link.target, value: link.value }));
       const sgLabelPad = (names: string[], fs = 11) => Math.ceil(Math.max(...names.map(n => n.length)) * fs * 0.7) + 16;
-      const sgLeft = sgLabelPad(["Coal", "Natural Gas", "Oil"]);       // longest left node
-      const sgRight = sgLabelPad(["Industry", "Buildings", "Transport"]); // longest right node
+      const sgLeft = sgLabelPad(specialData.sankeyNodes.map(node => node.name));
+      const sgRight = sgLeft;
       return {
         backgroundColor: bg, title: titleCfg, tooltip: { trigger: "item" },
         series: [{ type: "sankey", data: sgNodes, links: sgLinks, left: sgLeft, right: sgRight, top: title ? 52 : 24, bottom: 16, nodeWidth: 18, nodeGap: 10, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, lineStyle: { color: "gradient", opacity: 0.5 }, emphasis: { focus: "adjacency" } }],
@@ -1928,9 +2696,9 @@ function buildEChartsOption(
     case "funnel-basic": {
       const v = userVals(0);
       return {
-        backgroundColor: bg, color: palette, title: titleCfg, legend, tooltip: { trigger: "item" },
+        backgroundColor: bg, color: palette, title: titleCfg, legend: categoryLegend, tooltip: { trigger: "item" },
         series: [{
-          type: "funnel", left: "10%", top: title ? 52 : 20, width: "80%",
+          type: "funnel", left: "8%", right: legendBottom ? "8%" : categoryLegendRightSpace, top: title ? 52 : 20, bottom: categoryLegendBottomSpace,
           minSize: "0%", maxSize: "100%", sort: "descending", gap: 2,
           data: userLabels.map((l, i) => ({ name: l, value: v[i] ?? 0, itemStyle: { color: palette[i % palette.length] } })),
           label: { show: true, position: "inside", color: "#fff", fontFamily: "Inter", fontSize: 12, fontWeight: "bold" },
@@ -1939,8 +2707,13 @@ function buildEChartsOption(
     }
 
     case "graph-les-mis": {
-      const { nodes, links, categories } = genGraphData(40, rand, random);
-      const styledNodes = nodes.map(n => ({ ...n, label: { show: n.symbolSize > 30 } }));
+      const categoryNames = [...new Set(specialData.graphNodes.map(node => node.category || "Default"))];
+      const categories = categoryNames.map(name => ({ name }));
+      const styledNodes = specialData.graphNodes.map((node, index) => ({
+        id: node.name, name: node.name, category: Math.max(0, categoryNames.indexOf(node.category || "Default")),
+        symbolSize: index < 3 ? 34 : 16, value: index < 3 ? 8 : 2, label: { show: index < 3 },
+      }));
+      const links = specialData.graphLinks.map(link => ({ source: link.source, target: link.target, value: link.value }));
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Character Network", subtext: "Force Layout", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: {},
@@ -1958,7 +2731,13 @@ function buildEChartsOption(
     }
 
     case "graph-hide-overlap": {
-      const { nodes, links, categories } = genGraphData(60, rand, random);
+      const categoryNames = [...new Set(specialData.graphNodes.map(node => node.category || "Default"))];
+      const categories = categoryNames.map(name => ({ name }));
+      const nodes = specialData.graphNodes.map((node, index) => ({
+        id: node.name, name: node.name, category: Math.max(0, categoryNames.indexOf(node.category || "Default")),
+        symbolSize: index < 3 ? 32 : 14, value: index < 3 ? 8 : 2,
+      }));
+      const links = specialData.graphLinks.map(link => ({ source: link.source, target: link.target, value: link.value }));
       return {
         backgroundColor: bg, color: palette, title: titleCfg || { text: "Hide Overlapped Label", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: {},
@@ -1976,7 +2755,13 @@ function buildEChartsOption(
     }
 
     case "graph-gradient-edge": {
-      const { nodes, links, categories } = genGraphData(40, rand, random);
+      const categoryNames = [...new Set(specialData.graphNodes.map(node => node.category || "Default"))];
+      const categories = categoryNames.map(name => ({ name }));
+      const nodes = specialData.graphNodes.map((node, index) => ({
+        id: node.name, name: node.name, category: Math.max(0, categoryNames.indexOf(node.category || "Default")),
+        symbolSize: index < 3 ? 32 : 14, value: index < 3 ? 8 : 2,
+      }));
+      const links = specialData.graphLinks.map(link => ({ source: link.source, target: link.target, value: link.value }));
       const catColor = categories.map((_, i) => palette[i % palette.length]);
       const nodeCat = new Map(nodes.map(n => [n.id, n.category]));
       const styledLinks = links.map(l => ({
@@ -2061,9 +2846,6 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     "line-step": <path d="M3 18h4v-4h4v-3h4v-5h4v3h2" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />,
     "line-area-time": <><path d="M3 15c3-6 6-6 9-2s6-4 9 1v6H3z" fill={c} opacity="0.3" /><path d="M3 15c3-6 6-6 9-2s6-4 9 1" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
     "line-multiple-x": <><path d="M3 4h18M3 20h18" stroke={c} strokeWidth="1.4" opacity="0.5" /><path d="M3 15l4-7 4 5 4-8 4 6" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
-    "line-rainfall": <><rect x="4" y="13" width="3" height="7" fill={c} opacity="0.45" /><rect x="9.5" y="9" width="3" height="11" fill={c} opacity="0.45" /><rect x="15" y="15" width="3" height="5" fill={c} opacity="0.45" /><path d="M3 10l5 3 5-6 5 4 3-3" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /></>,
-    "line-datazoom": <><path d="M3 13l4-6 4 4 4-5 4 3" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><rect x="3.5" y="18.5" width="17" height="3" rx="1.5" stroke={c} strokeWidth="1.4" fill="none" /><rect x="5.5" y="17.7" width="2" height="4.6" rx="1" fill={c} /><rect x="16.5" y="17.7" width="2" height="4.6" rx="1" fill={c} /></>,
-    "line-dynamic": <><path d="M3 15l4-5 4 3 4-6 4 4" stroke={c} strokeWidth="2" strokeLinecap="round" fill="none" /><circle cx="19" cy="11" r="4" stroke={c} strokeWidth="1.2" opacity="0.4" fill="none" /><circle cx="19" cy="11" r="2" fill={c} /></>,
     "line-aqi": <><path d="M3 17c3 0 3-6 6-6" stroke="#10b981" strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M9 11c3 0 2 5 5 5" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" fill="none" /><path d="M14 16c3 0 2-8 6-8" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" fill="none" /></>,
     "large-scale-area": <><path d="M2 17l1-2 1 3 1-4 1 2 1-3 1 4 1-2 1 3 1-5 1 3 1-2 1 4 1-3 1 2 1-4 1 3v3H2z" fill={c} opacity="0.32" /><path d="M2 17l1-2 1 3 1-4 1 2 1-3 1 4 1-2 1 3 1-5 1 3 1-2 1 4 1-3 1 2 1-4 1 3" stroke={c} strokeWidth="1.1" strokeLinejoin="round" fill="none" /></>,
     "area-rainfall": <><path d="M3 14c3-5 6-3 9-6s6 1 9-3v13H3z" fill={c} opacity="0.3" /><path d="M3 14c3-5 6-3 9-6s6 1 9-3" stroke={c} strokeWidth="1.6" fill="none" /><rect x="5" y="18" width="1.2" height="3" fill={c} opacity="0.6" /><rect x="10.5" y="16" width="1.2" height="5" fill={c} opacity="0.6" /><rect x="16" y="19" width="1.2" height="2" fill={c} opacity="0.6" /></>,
@@ -2243,7 +3025,7 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <line x1="2" y1="13" x2="22" y2="13" stroke={c} strokeWidth="1" strokeDasharray="1.5 1.5" opacity="0.5" />
       <path d="M4 19l4-3 4 2 4-4 4 2" stroke={c} strokeWidth="1.6" strokeLinecap="round" fill="none" />
     </>,
-    "lines-synthetic": <>
+    "lines-ny": <>
       {[3, 8, 13, 18].map(y => <line key={"h" + y} x1="2" y1={y} x2="22" y2={y + (y % 2 ? 1 : -1) * 0.6} stroke={c} strokeWidth="0.8" opacity="0.55" />)}
       {[4, 9, 14, 19].map(x => <line key={"v" + x} x1={x} y1="2" x2={x + (x % 2 ? 1 : -1) * 0.6} y2="22" stroke={c} strokeWidth="0.8" opacity="0.55" />)}
     </>,
@@ -2381,16 +3163,21 @@ function Section({ title, id, collapsed, onToggle, children, isDark }: {
 export default function App() {
   const [chartType, setChartType] = useState("bar-basic");
   const [labels, setLabels] = useState(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"]);
-  const [newLabel, setNewLabel] = useState("");
   const [datasets, setDatasets] = useState<Dataset[]>([
     { id: "1", name: "Dataset 1", data: [65, 59, 80, 81, 56, 72, 68], color: "#6366F1" },
     { id: "2", name: "Dataset 2", data: [40, 75, 55, 62, 88, 48, 77], color: "#f59e0b" },
   ]);
+  const [specialData, setSpecialData] = useState<SpecialChartData>(() => createDefaultSpecialChartData());
+  const [dataToolMode, setDataToolMode] = useState<"closed" | "csv" | "json">("closed");
+  const [dataToolText, setDataToolText] = useState("");
+  const [dataToolError, setDataToolError] = useState<string | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [primaryColor, setPrimaryColor] = useState("#6366F1");
   const [hexInput, setHexInput] = useState("#6366F1");
   const [palette, setPalette] = useState(() => generatePalette("#6366F1"));
   const [manualPalette, setManualPalette] = useState<string[]>([]);
+  const [activePaletteIndex, setActivePaletteIndex] = useState<number | null>(null);
+  const [paletteHexInput, setPaletteHexInput] = useState("");
   const [sizePreset, setSizePreset] = useState<SizePreset>("M");
   const [customWidth, setCustomWidth] = useState(800);
   const [customHeight, setCustomHeight] = useState(500);
@@ -2405,8 +3192,17 @@ export default function App() {
   const [mapRetryToken, setMapRetryToken] = useState(0);
 
   const echartsExportRef = useRef<echarts.ECharts | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement | null>(null);
+  const chartInputCacheRef = useRef<Record<string, CategoryChartInput>>({});
 
   const effectivePalette = palette.map((c, i) => manualPalette[i] || c);
+  const activeChartPolicy = getChartPolicy(chartType);
+  const isPaletteLocked = activeChartPolicy.colorPolicy === "official-fixed";
+  const datasetLimit = FIRST_DATASET_ONLY_CHARTS.has(chartType) ? 1 : TWO_DATASET_CHARTS.has(chartType) ? 2 : Number.POSITIVE_INFINITY;
+  const datasetMinimum = TWO_DATASET_CHARTS.has(chartType) ? 2 : 1;
+  const editableDatasets = Number.isFinite(datasetLimit) ? datasets.slice(0, datasetLimit) : datasets;
+  const canAddDataset = !Number.isFinite(datasetLimit) || datasets.length < datasetLimit;
+  const chartDatasets = editableDatasets;
   const chartSize = sizePreset === "Custom" ? { w: customWidth, h: customHeight } : SIZE_PRESETS[sizePreset];
 
   useEffect(() => {
@@ -2414,7 +3210,11 @@ export default function App() {
   }, [labels.length]);
 
   useEffect(() => {
-    if (isValidHex(primaryColor)) { setPalette(generatePalette(primaryColor)); setManualPalette([]); }
+    if (isValidHex(primaryColor)) {
+      setPalette(generatePalette(primaryColor));
+      setManualPalette([]);
+      setActivePaletteIndex(null);
+    }
   }, [primaryColor]);
 
   // Fetches/registers the USA map only when a map-based chart is actually selected.
@@ -2429,12 +3229,656 @@ export default function App() {
     return () => { cancelled = true; };
   }, [chartType, mapRetryToken]);
 
+  useEffect(() => {
+    setDataToolMode("closed");
+    setDataToolError(null);
+  }, [chartType]);
+
   const toggleSection = useCallback((id: string) => {
     setCollapsed(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
 
-  const randomizeData = () => setDatasets(prev => prev.map(ds => ({ ...ds, data: labels.map(() => baseRand(10, 100)) })));
+  const selectChartType = (nextChartType: string) => {
+    if (nextChartType === chartType) return;
+    chartInputCacheRef.current[chartType] = {
+      title: chartTitle,
+      labels: [...labels],
+      datasets: datasets.map(dataset => ({ ...dataset, data: [...dataset.data] })),
+    };
+    const nextInput = chartInputCacheRef.current[nextChartType] ?? createCategoryInputForChart(nextChartType);
+    setLabels([...nextInput.labels]);
+    setDatasets(nextInput.datasets.map(dataset => ({ ...dataset, data: [...dataset.data] })));
+    setChartTitle(nextInput.title);
+    setChartType(nextChartType);
+  };
+  const resetCategorySample = () => {
+    const nextInput = createCategoryInputForChart(chartType);
+    setLabels([...nextInput.labels]);
+    setDatasets(nextInput.datasets.map(dataset => ({ ...dataset, data: [...dataset.data] })));
+    setChartTitle(nextInput.title);
+  };
+  const randomizeData = () => setDatasets(prev => prev.map((ds, datasetIndex) => ({
+    ...ds,
+    data: labels.map(() => {
+      if (chartType === "line-aqi") return baseRand(10, 380);
+      if (chartType === "area-rainfall") return datasetIndex === 0 ? +(Math.random() * 2.4).toFixed(3) : +(Math.random() * 6).toFixed(3);
+      if (chartType === "bar-negative") return +(Math.random() * 1.2 - 0.6).toFixed(2);
+      return baseRand(10, 100);
+    }),
+  })));
   const addDataset = () => setDatasets(prev => [...prev, { id: Date.now().toString(), name: `Dataset ${prev.length + 1}`, data: labels.map(() => baseRand(20, 100)), color: effectivePalette[prev.length % effectivePalette.length] }]);
+  const addDataPoint = () => {
+    setLabels(prev => [...prev, `Item ${prev.length + 1}`]);
+    setDatasets(prev => prev.map(ds => ({ ...ds, data: [...ds.data, 0] })));
+  };
+  const removeDataPoint = (index: number) => {
+    setLabels(prev => prev.filter((_, i) => i !== index));
+    setDatasets(prev => prev.map(ds => ({ ...ds, data: ds.data.filter((_, i) => i !== index) })));
+  };
+  const updateDataPointLabel = (index: number, value: string) =>
+    setLabels(prev => prev.map((label, i) => i === index ? value : label));
+  const updateDatasetName = (id: string, value: string) =>
+    setDatasets(prev => prev.map(ds => ds.id === id ? { ...ds, name: value } : ds));
+  const updateDatasetValue = (id: string, index: number, rawValue: string) => {
+    const value = Number(rawValue);
+    setDatasets(prev => prev.map(ds => ds.id !== id ? ds : {
+      ...ds,
+      data: ds.data.map((current, i) => i === index ? (Number.isFinite(value) ? value : current) : current),
+    }));
+  };
+  const setPaletteOverride = (index: number, hex: string) => {
+    if (!isValidHex(hex)) return;
+    setManualPalette(prev => {
+      const next = [...prev];
+      while (next.length <= index) next.push("");
+      next[index] = hex;
+      return next;
+    });
+  };
+  const openPalettePicker = (index: number) => {
+    setActivePaletteIndex(current => current === index ? null : index);
+    setPaletteHexInput(effectivePalette[index]);
+  };
+  const resetPaletteColor = (index: number) => {
+    setManualPalette(prev => {
+      const next = [...prev];
+      next[index] = "";
+      return next;
+    });
+    setPaletteHexInput(palette[index]);
+  };
+  const resetSpecialSample = () => {
+    setSpecialData(prev => {
+      if (chartType === "scatter-basic") return { ...prev, scatter: createDefaultScatterSeries() };
+      if (chartType === "scatter-bubble") return { ...prev, bubble: createDefaultBubbleSeries() };
+      if (chartType === "line-confidence") return { ...prev, confidence: createDefaultConfidencePoints() };
+      if (chartType === "candle-basic") return { ...prev, candleBasic: createDefaultOHLCPoints(40, "candle-basic") };
+      if (chartType === "candle-large") return { ...prev, candleLarge: createDefaultOHLCPoints(120, "candle-large") };
+      if (chartType === "heat-cartesian") return { ...prev, cartesianHeatmap: createDefaultCartesianHeatmap() };
+      if (chartType === "matrix-covariance") return { ...prev, covarianceMatrix: createDefaultCovarianceMatrix() };
+      if (chartType === "scatter-single") return { ...prev, singleAxisScatter: createDefaultSingleAxisScatter() };
+      if (chartType === "scatter-jitter") return { ...prev, jitterScatter: createDefaultJitterScatter() };
+      if (chartType === "heat-calendar") return { ...prev, calendarHeatmap: createDefaultCalendarHeatmap() };
+      if (chartType === "tree-lr" || chartType === "treemap-basic" || chartType === "treemap-sunburst") return { ...prev, hierarchy: createDefaultHierarchy() };
+      if (chartType === "sankey-basic" || chartType === "sankey-gradient") {
+        const sankey = createDefaultSankeyData();
+        return { ...prev, sankeyNodes: sankey.nodes, sankeyLinks: sankey.links };
+      }
+      if (chartType === "graph-les-mis" || chartType === "graph-hide-overlap" || chartType === "graph-gradient-edge") {
+        const graph = createDefaultGraphData();
+        return { ...prev, graphNodes: graph.nodes, graphLinks: graph.links };
+      }
+      if (chartType === "map-usa-population" || chartType === "matrix-mini-bar-geo") return { ...prev, geoRegions: createDefaultGeoRegions() };
+      if (chartType === "geo-graph") return { ...prev, geoRoute: createDefaultGeoRoute() };
+      if (chartType === "heat-large" || chartType === "lines-ny" || chartType === "large-scale-area") {
+        return { ...prev, generator: createDefaultSpecialChartData().generator };
+      }
+      return prev;
+    });
+  };
+  const updateXYSeriesName = (kind: "scatter" | "bubble", id: string, name: string) => {
+    setSpecialData(prev => kind === "scatter"
+      ? { ...prev, scatter: prev.scatter.map(series => series.id === id ? { ...series, name } : series) }
+      : { ...prev, bubble: prev.bubble.map(series => series.id === id ? { ...series, name } : series) });
+  };
+  const updateXYPoint = (kind: "scatter" | "bubble", seriesId: string, pointIndex: number, field: "x" | "y" | "size", rawValue: string) => {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    setSpecialData(prev => {
+      if (kind === "scatter") {
+        return {
+          ...prev,
+          scatter: prev.scatter.map(series => series.id !== seriesId ? series : {
+            ...series,
+            points: series.points.map((point, index) => index === pointIndex ? { ...point, [field]: value } : point),
+          }),
+        };
+      }
+      return {
+        ...prev,
+        bubble: prev.bubble.map(series => series.id !== seriesId ? series : {
+          ...series,
+          points: series.points.map((point, index) => index === pointIndex ? { ...point, [field]: value } : point),
+        }),
+      };
+    });
+  };
+  const addXYPoint = (kind: "scatter" | "bubble", seriesId: string) => {
+    setSpecialData(prev => {
+      if (kind === "scatter") {
+        return {
+          ...prev,
+          scatter: prev.scatter.map(series => {
+            if (series.id !== seriesId) return series;
+            const last = series.points[series.points.length - 1] ?? { x: 0, y: 0 };
+            return { ...series, points: [...series.points, { x: last.x + 10, y: last.y }] };
+          }),
+        };
+      }
+      return {
+        ...prev,
+        bubble: prev.bubble.map(series => {
+          if (series.id !== seriesId) return series;
+          const last = series.points[series.points.length - 1] ?? { x: 0, y: 0, size: 20 };
+          return { ...series, points: [...series.points, { x: last.x + 10, y: last.y, size: last.size }] };
+        }),
+      };
+    });
+  };
+  const removeXYPoint = (kind: "scatter" | "bubble", seriesId: string, pointIndex: number) => {
+    setSpecialData(prev => kind === "scatter"
+      ? {
+          ...prev,
+          scatter: prev.scatter.map(series => series.id !== seriesId || series.points.length <= 1 ? series : {
+            ...series,
+            points: series.points.filter((_, index) => index !== pointIndex),
+          }),
+        }
+      : {
+          ...prev,
+          bubble: prev.bubble.map(series => series.id !== seriesId || series.points.length <= 1 ? series : {
+            ...series,
+            points: series.points.filter((_, index) => index !== pointIndex),
+          }),
+        });
+  };
+  const addXYSeries = (kind: "scatter" | "bubble") => {
+    const id = `${kind}-${Date.now()}`;
+    setSpecialData(prev => kind === "scatter"
+      ? { ...prev, scatter: [...prev.scatter, { id, name: `Group ${prev.scatter.length + 1}`, points: [{ x: 10, y: 20 }] }] }
+      : { ...prev, bubble: [...prev.bubble, { id, name: `Market ${prev.bubble.length + 1}`, points: [{ x: 10, y: 20, size: 20 }] }] });
+  };
+  const removeXYSeries = (kind: "scatter" | "bubble", id: string) => {
+    setSpecialData(prev => kind === "scatter"
+      ? { ...prev, scatter: prev.scatter.length <= 1 ? prev.scatter : prev.scatter.filter(series => series.id !== id) }
+      : { ...prev, bubble: prev.bubble.length <= 1 ? prev.bubble : prev.bubble.filter(series => series.id !== id) });
+  };
+  const updateRangePoint = (index: number, field: keyof RangePoint, rawValue: string) => {
+    setSpecialData(prev => ({
+      ...prev,
+      confidence: prev.confidence.map((point, pointIndex) => {
+        if (pointIndex !== index) return point;
+        if (field === "label") return { ...point, label: rawValue };
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? { ...point, [field]: value } : point;
+      }),
+    }));
+  };
+  const addRangePoint = () => {
+    setSpecialData(prev => {
+      const last = prev.confidence[prev.confidence.length - 1] ?? { label: "2024-01-01", value: 0, lower: -0.1, upper: 0.1 };
+      const date = new Date(`${last.label}T00:00:00Z`);
+      date.setUTCDate(date.getUTCDate() + 1);
+      return { ...prev, confidence: [...prev.confidence, { ...last, label: Number.isNaN(date.getTime()) ? `Point ${prev.confidence.length + 1}` : date.toISOString().slice(0, 10) }] };
+    });
+  };
+  const removeRangePoint = (index: number) =>
+    setSpecialData(prev => ({ ...prev, confidence: prev.confidence.length <= 1 ? prev.confidence : prev.confidence.filter((_, i) => i !== index) }));
+  const activeCandleKey: "candleBasic" | "candleLarge" = chartType === "candle-large" ? "candleLarge" : "candleBasic";
+  const updateOHLCPoint = (index: number, field: keyof OHLCPoint, rawValue: string) => {
+    setSpecialData(prev => ({
+      ...prev,
+      [activeCandleKey]: prev[activeCandleKey].map((point, pointIndex) => {
+        if (pointIndex !== index) return point;
+        if (field === "date") return { ...point, date: rawValue };
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? { ...point, [field]: value } : point;
+      }),
+    }));
+  };
+  const addOHLCPoint = () => {
+    setSpecialData(prev => {
+      const points = prev[activeCandleKey];
+      const last = points[points.length - 1] ?? { date: "2024-01-01", open: 100, close: 100, low: 95, high: 105 };
+      const date = new Date(`${last.date}T00:00:00Z`);
+      date.setUTCDate(date.getUTCDate() + 1);
+      const next = { ...last, date: Number.isNaN(date.getTime()) ? `Day ${points.length + 1}` : date.toISOString().slice(0, 10) };
+      return { ...prev, [activeCandleKey]: [...points, next] };
+    });
+  };
+  const removeOHLCPoint = (index: number) =>
+    setSpecialData(prev => ({ ...prev, [activeCandleKey]: prev[activeCandleKey].length <= 1 ? prev[activeCandleKey] : prev[activeCandleKey].filter((_, i) => i !== index) }));
+  const activeMatrixKey: "cartesianHeatmap" | "covarianceMatrix" | "singleAxisScatter" | "jitterScatter" =
+    chartType === "matrix-covariance" ? "covarianceMatrix"
+      : chartType === "scatter-single" ? "singleAxisScatter"
+        : chartType === "scatter-jitter" ? "jitterScatter"
+          : "cartesianHeatmap";
+  const updateMatrixCell = (index: number, field: keyof MatrixCell, rawValue: string) => {
+    setSpecialData(prev => ({
+      ...prev,
+      [activeMatrixKey]: prev[activeMatrixKey].map((cell, cellIndex) => {
+        if (cellIndex !== index) return cell;
+        if (field === "x" || field === "y") return { ...cell, [field]: rawValue };
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? { ...cell, value } : cell;
+      }),
+    }));
+  };
+  const addMatrixCell = () =>
+    setSpecialData(prev => ({ ...prev, [activeMatrixKey]: [...prev[activeMatrixKey], { x: "New X", y: "New Y", value: 0 }] }));
+  const removeMatrixCell = (index: number) =>
+    setSpecialData(prev => ({ ...prev, [activeMatrixKey]: prev[activeMatrixKey].length <= 1 ? prev[activeMatrixKey] : prev[activeMatrixKey].filter((_, i) => i !== index) }));
+  const updateCalendarPoint = (index: number, field: keyof DateValuePoint, rawValue: string) => {
+    setSpecialData(prev => ({
+      ...prev,
+      calendarHeatmap: prev.calendarHeatmap.map((point, pointIndex) => {
+        if (pointIndex !== index) return point;
+        if (field === "date") return { ...point, date: rawValue };
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? { ...point, value } : point;
+      }),
+    }));
+  };
+  const addCalendarPoint = () => {
+    setSpecialData(prev => {
+      const last = prev.calendarHeatmap[prev.calendarHeatmap.length - 1] ?? { date: "2024-01-01", value: 0 };
+      const date = new Date(`${last.date}T00:00:00Z`);
+      date.setUTCDate(date.getUTCDate() + 1);
+      return { ...prev, calendarHeatmap: [...prev.calendarHeatmap, { date: Number.isNaN(date.getTime()) ? "2024-01-01" : date.toISOString().slice(0, 10), value: last.value }] };
+    });
+  };
+  const removeCalendarPoint = (index: number) =>
+    setSpecialData(prev => ({ ...prev, calendarHeatmap: prev.calendarHeatmap.length <= 1 ? prev.calendarHeatmap : prev.calendarHeatmap.filter((_, i) => i !== index) }));
+  const updateHierarchyRow = (index: number, field: keyof HierarchyRow, rawValue: string) => {
+    setSpecialData(prev => {
+      const oldId = prev.hierarchy[index]?.id;
+      return {
+        ...prev,
+        hierarchy: prev.hierarchy.map((row, rowIndex) => {
+          if (rowIndex === index) {
+            if (field !== "value") return { ...row, [field]: rawValue };
+            const value = Number(rawValue);
+            return Number.isFinite(value) ? { ...row, value } : row;
+          }
+          return field === "id" && row.parentId === oldId ? { ...row, parentId: rawValue } : row;
+        }),
+      };
+    });
+  };
+  const addHierarchyRow = () =>
+    setSpecialData(prev => ({ ...prev, hierarchy: [...prev.hierarchy, { id: `node-${Date.now()}`, name: `Node ${prev.hierarchy.length + 1}`, parentId: prev.hierarchy[0]?.id ?? "", value: 10 }] }));
+  const removeHierarchyRow = (index: number) => {
+    setSpecialData(prev => {
+      if (prev.hierarchy.length <= 1) return prev;
+      const removedId = prev.hierarchy[index]?.id;
+      return { ...prev, hierarchy: prev.hierarchy.filter((_, i) => i !== index).map(row => row.parentId === removedId ? { ...row, parentId: "" } : row) };
+    });
+  };
+  const usesSankeyData = chartType === "sankey-basic" || chartType === "sankey-gradient";
+  const activeNetworkNodes = usesSankeyData ? specialData.sankeyNodes : specialData.graphNodes;
+  const activeNetworkLinks = usesSankeyData ? specialData.sankeyLinks : specialData.graphLinks;
+  const updateNetworkNode = (index: number, field: "name" | "category", value: string) => {
+    setSpecialData(prev => {
+      const nodesKey = usesSankeyData ? "sankeyNodes" : "graphNodes";
+      const linksKey = usesSankeyData ? "sankeyLinks" : "graphLinks";
+      const oldName = prev[nodesKey][index]?.name;
+      return {
+        ...prev,
+        [nodesKey]: prev[nodesKey].map((node, nodeIndex) => nodeIndex === index ? { ...node, [field]: value } : node),
+        ...(field === "name" ? {
+          [linksKey]: prev[linksKey].map(link => ({
+            ...link,
+            source: link.source === oldName ? value : link.source,
+            target: link.target === oldName ? value : link.target,
+          })),
+        } : {}),
+      };
+    });
+  };
+  const addNetworkNode = () => {
+    const nodesKey = usesSankeyData ? "sankeyNodes" : "graphNodes";
+    setSpecialData(prev => ({ ...prev, [nodesKey]: [...prev[nodesKey], { id: `node-${Date.now()}`, name: `Node ${prev[nodesKey].length + 1}`, category: "Default" }] }));
+  };
+  const removeNetworkNode = (index: number) => {
+    const nodesKey = usesSankeyData ? "sankeyNodes" : "graphNodes";
+    const linksKey = usesSankeyData ? "sankeyLinks" : "graphLinks";
+    setSpecialData(prev => {
+      if (prev[nodesKey].length <= 1) return prev;
+      const name = prev[nodesKey][index]?.name;
+      return { ...prev, [nodesKey]: prev[nodesKey].filter((_, i) => i !== index), [linksKey]: prev[linksKey].filter(link => link.source !== name && link.target !== name) };
+    });
+  };
+  const updateNetworkLink = (index: number, field: "source" | "target" | "value", rawValue: string) => {
+    const linksKey = usesSankeyData ? "sankeyLinks" : "graphLinks";
+    setSpecialData(prev => ({
+      ...prev,
+      [linksKey]: prev[linksKey].map((link, linkIndex) => {
+        if (linkIndex !== index) return link;
+        if (field === "source" || field === "target") return { ...link, [field]: rawValue };
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? { ...link, value } : link;
+      }),
+    }));
+  };
+  const addNetworkLink = () => {
+    const linksKey = usesSankeyData ? "sankeyLinks" : "graphLinks";
+    const source = activeNetworkNodes[0]?.name ?? "";
+    const target = activeNetworkNodes[1]?.name ?? source;
+    setSpecialData(prev => ({ ...prev, [linksKey]: [...prev[linksKey], { id: `link-${Date.now()}`, source, target, value: 1 }] }));
+  };
+  const removeNetworkLink = (index: number) => {
+    const linksKey = usesSankeyData ? "sankeyLinks" : "graphLinks";
+    setSpecialData(prev => ({ ...prev, [linksKey]: prev[linksKey].filter((_, i) => i !== index) }));
+  };
+  const updateGeoRegion = (index: number, field: keyof GeoRegionRow, rawValue: string) => {
+    setSpecialData(prev => ({
+      ...prev,
+      geoRegions: prev.geoRegions.map((region, regionIndex) => {
+        if (regionIndex !== index) return region;
+        if (field === "name") return { ...region, name: rawValue };
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? { ...region, [field]: value } : region;
+      }),
+    }));
+  };
+  const addGeoRegion = () =>
+    setSpecialData(prev => ({ ...prev, geoRegions: [...prev.geoRegions, { name: `Region ${prev.geoRegions.length + 1}`, value: 0, secondary: 0 }] }));
+  const removeGeoRegion = (index: number) =>
+    setSpecialData(prev => ({ ...prev, geoRegions: prev.geoRegions.length <= 1 ? prev.geoRegions : prev.geoRegions.filter((_, i) => i !== index) }));
+  const updateGeoRoutePoint = (index: number, field: keyof GeoRoutePoint, rawValue: string) => {
+    setSpecialData(prev => ({
+      ...prev,
+      geoRoute: prev.geoRoute.map((point, pointIndex) => {
+        if (pointIndex !== index) return point;
+        if (field === "name") return { ...point, name: rawValue };
+        const value = Number(rawValue);
+        return Number.isFinite(value) ? { ...point, [field]: value } : point;
+      }),
+    }));
+  };
+  const addGeoRoutePoint = () =>
+    setSpecialData(prev => ({ ...prev, geoRoute: [...prev.geoRoute, { name: `Point ${prev.geoRoute.length + 1}`, longitude: -98, latitude: 39 }] }));
+  const removeGeoRoutePoint = (index: number) =>
+    setSpecialData(prev => ({ ...prev, geoRoute: prev.geoRoute.length <= 2 ? prev.geoRoute : prev.geoRoute.filter((_, i) => i !== index) }));
+  const updateGeneratorSetting = (field: keyof GeneratorSettings, rawValue: string) => {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    setSpecialData(prev => ({ ...prev, generator: { ...prev.generator, [field]: value } }));
+  };
+  const getActiveDataPayload = (): unknown => {
+    switch (activeChartPolicy.dataEditor) {
+      case "category-series": return { labels, datasets };
+      case "single-value":
+      case "multi-value": return { datasets };
+      case "xy": return specialData.scatter;
+      case "xyz": return specialData.bubble;
+      case "range": return specialData.confidence;
+      case "ohlc": return specialData[activeCandleKey];
+      case "matrix": return specialData[activeMatrixKey];
+      case "calendar": return specialData.calendarHeatmap;
+      case "hierarchy": return specialData.hierarchy;
+      case "network": return { nodes: activeNetworkNodes, links: activeNetworkLinks };
+      case "geo": return specialData.geoRegions;
+      case "geo-route": return specialData.geoRoute;
+      case "generator": return specialData.generator;
+      default: return null;
+    }
+  };
+  const activeDataToCsv = (): string => {
+    const rows: unknown[][] = [];
+    switch (activeChartPolicy.dataEditor) {
+      case "category-series": {
+        const visible = editableDatasets;
+        rows.push(["label", ...visible.map(dataset => dataset.name)]);
+        labels.forEach((label, index) => rows.push([label, ...visible.map(dataset => dataset.data[index] ?? 0)]));
+        break;
+      }
+      case "single-value":
+      case "multi-value":
+        rows.push(["name", "value"]);
+        datasets.forEach(dataset => rows.push([dataset.name, dataset.data[0] ?? 0]));
+        break;
+      case "xy":
+        rows.push(["series", "x", "y"]);
+        specialData.scatter.forEach(series => series.points.forEach(point => rows.push([series.name, point.x, point.y])));
+        break;
+      case "xyz":
+        rows.push(["series", "x", "y", "size"]);
+        specialData.bubble.forEach(series => series.points.forEach(point => rows.push([series.name, point.x, point.y, point.size])));
+        break;
+      case "range":
+        rows.push(["label", "value", "lower", "upper"]);
+        specialData.confidence.forEach(point => rows.push([point.label, point.value, point.lower, point.upper]));
+        break;
+      case "ohlc":
+        rows.push(["date", "open", "close", "low", "high"]);
+        specialData[activeCandleKey].forEach(point => rows.push([point.date, point.open, point.close, point.low, point.high]));
+        break;
+      case "matrix":
+        rows.push(["x", "y", "value"]);
+        specialData[activeMatrixKey].forEach(cell => rows.push([cell.x, cell.y, cell.value]));
+        break;
+      case "calendar":
+        rows.push(["date", "value"]);
+        specialData.calendarHeatmap.forEach(point => rows.push([point.date, point.value]));
+        break;
+      case "hierarchy":
+        rows.push(["id", "name", "parentId", "value"]);
+        specialData.hierarchy.forEach(row => rows.push([row.id, row.name, row.parentId, row.value]));
+        break;
+      case "network":
+        rows.push(["record", "id", "name", "category", "source", "target", "value"]);
+        activeNetworkNodes.forEach(node => rows.push(["node", node.id, node.name, node.category, "", "", ""]));
+        activeNetworkLinks.forEach(link => rows.push(["link", link.id, "", "", link.source, link.target, link.value]));
+        break;
+      case "geo":
+        rows.push(["name", "value", "secondary"]);
+        specialData.geoRegions.forEach(region => rows.push([region.name, region.value, region.secondary]));
+        break;
+      case "geo-route":
+        rows.push(["name", "longitude", "latitude"]);
+        specialData.geoRoute.forEach(point => rows.push([point.name, point.longitude, point.latitude]));
+        break;
+      case "generator":
+        rows.push(["key", "value"]);
+        Object.entries(specialData.generator).forEach(([key, value]) => rows.push([key, value]));
+        break;
+    }
+    return rows.map(row => row.map(csvEscape).join(",")).join("\n");
+  };
+  const openDataTool = (mode: "csv" | "json") => {
+    setDataToolMode(mode);
+    setDataToolError(null);
+    setDataToolText(mode === "json" ? JSON.stringify(getActiveDataPayload(), null, 2) : activeDataToCsv());
+  };
+  const applyJsonData = () => {
+    try {
+      const parsed = JSON.parse(dataToolText);
+      const requireArray = (value: unknown, label: string) => {
+        if (!Array.isArray(value) || !value.length) throw new Error(`${label} 배열이 비어 있거나 올바르지 않습니다.`);
+        return value;
+      };
+      const jsonNumber = (value: unknown, label: string) => {
+        if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${label}은 숫자여야 합니다.`);
+        return value;
+      };
+      switch (activeChartPolicy.dataEditor) {
+        case "category-series": {
+          if (!parsed || !Array.isArray(parsed.labels) || !Array.isArray(parsed.datasets)) throw new Error("labels와 datasets가 필요합니다.");
+          const nextLabels = parsed.labels.map(String);
+          const nextDatasets = parsed.datasets.map((dataset: any, index: number) => ({
+            id: String(dataset.id ?? `dataset-${Date.now()}-${index}`),
+            name: String(dataset.name ?? `Dataset ${index + 1}`),
+            data: nextLabels.map((_: string, valueIndex: number) => jsonNumber(dataset.data?.[valueIndex] ?? 0, `${dataset.name ?? `Dataset ${index + 1}`} data`)),
+            color: String(dataset.color ?? effectivePalette[index % effectivePalette.length]),
+          }));
+          if (!nextLabels.length || !nextDatasets.length) throw new Error("최소 1개의 label과 dataset이 필요합니다.");
+          setLabels(nextLabels); setDatasets(nextDatasets);
+          break;
+        }
+        case "single-value":
+        case "multi-value": {
+          const source = requireArray(parsed?.datasets, "datasets");
+          setDatasets(source.map((dataset: any, index: number) => ({ id: String(dataset.id ?? `dataset-${Date.now()}-${index}`), name: String(dataset.name ?? `Dataset ${index + 1}`), data: [jsonNumber(dataset.data?.[0] ?? 0, `Dataset ${index + 1} value`)], color: String(dataset.color ?? effectivePalette[index % effectivePalette.length]) })));
+          break;
+        }
+        case "xy":
+          setSpecialData(prev => ({ ...prev, scatter: requireArray(parsed, "XY series").map((series: any, index: number) => ({ id: String(series.id ?? `xy-${index}`), name: String(series.name ?? `Series ${index + 1}`), points: requireArray(series.points, "points").map((point: any, pointIndex: number) => ({ x: jsonNumber(point.x, `Point ${pointIndex + 1} X`), y: jsonNumber(point.y, `Point ${pointIndex + 1} Y`) })) })) }));
+          break;
+        case "xyz":
+          setSpecialData(prev => ({ ...prev, bubble: requireArray(parsed, "XYZ series").map((series: any, index: number) => ({ id: String(series.id ?? `xyz-${index}`), name: String(series.name ?? `Series ${index + 1}`), points: requireArray(series.points, "points").map((point: any, pointIndex: number) => ({ x: jsonNumber(point.x, `Point ${pointIndex + 1} X`), y: jsonNumber(point.y, `Point ${pointIndex + 1} Y`), size: jsonNumber(point.size, `Point ${pointIndex + 1} Size`) })) })) }));
+          break;
+        case "range":
+          setSpecialData(prev => ({ ...prev, confidence: requireArray(parsed, "Range").map((point: any, index: number) => ({ label: String(point.label), value: jsonNumber(point.value, `Range ${index + 1} value`), lower: jsonNumber(point.lower, `Range ${index + 1} lower`), upper: jsonNumber(point.upper, `Range ${index + 1} upper`) })) }));
+          break;
+        case "ohlc":
+          setSpecialData(prev => ({ ...prev, [activeCandleKey]: requireArray(parsed, "OHLC").map((point: any, index: number) => ({ date: String(point.date), open: jsonNumber(point.open, `OHLC ${index + 1} open`), close: jsonNumber(point.close, `OHLC ${index + 1} close`), low: jsonNumber(point.low, `OHLC ${index + 1} low`), high: jsonNumber(point.high, `OHLC ${index + 1} high`) })) }));
+          break;
+        case "matrix":
+          setSpecialData(prev => ({ ...prev, [activeMatrixKey]: requireArray(parsed, "Matrix").map((cell: any, index: number) => ({ x: String(cell.x), y: String(cell.y), value: jsonNumber(cell.value, `Matrix ${index + 1} value`) })) }));
+          break;
+        case "calendar":
+          setSpecialData(prev => ({ ...prev, calendarHeatmap: requireArray(parsed, "Calendar").map((point: any, index: number) => ({ date: String(point.date), value: jsonNumber(point.value, `Calendar ${index + 1} value`) })) }));
+          break;
+        case "hierarchy":
+          setSpecialData(prev => ({ ...prev, hierarchy: requireArray(parsed, "Hierarchy").map((row: any, index: number) => ({ id: String(row.id ?? `node-${index}`), name: String(row.name ?? `Node ${index + 1}`), parentId: String(row.parentId ?? ""), value: jsonNumber(row.value ?? 0, `Hierarchy ${index + 1} value`) })) }));
+          break;
+        case "network": {
+          const nodes = requireArray(parsed?.nodes, "nodes").map((node: any, index: number) => ({ id: String(node.id ?? `node-${index}`), name: String(node.name ?? `Node ${index + 1}`), category: String(node.category ?? "Default") }));
+          const links = requireArray(parsed?.links, "links").map((link: any, index: number) => ({ id: String(link.id ?? `link-${index}`), source: String(link.source), target: String(link.target), value: jsonNumber(link.value ?? 1, `Link ${index + 1} value`) }));
+          setSpecialData(prev => usesSankeyData ? { ...prev, sankeyNodes: nodes, sankeyLinks: links } : { ...prev, graphNodes: nodes, graphLinks: links });
+          break;
+        }
+        case "geo":
+          setSpecialData(prev => ({ ...prev, geoRegions: requireArray(parsed, "Geo regions").map((region: any, index: number) => ({ name: String(region.name), value: jsonNumber(region.value, `Region ${index + 1} value`), secondary: jsonNumber(region.secondary ?? 0, `Region ${index + 1} secondary`) })) }));
+          break;
+        case "geo-route":
+          setSpecialData(prev => ({ ...prev, geoRoute: requireArray(parsed, "Geo route").map((point: any, index: number) => ({ name: String(point.name), longitude: jsonNumber(point.longitude, `Route ${index + 1} longitude`), latitude: jsonNumber(point.latitude, `Route ${index + 1} latitude`) })) }));
+          break;
+        case "generator": {
+          if (!parsed || typeof parsed !== "object") throw new Error("Generator 객체가 필요합니다.");
+          const current = specialData.generator;
+          const next = Object.fromEntries(Object.keys(current).map(key => [key, Number(parsed[key] ?? current[key as keyof GeneratorSettings])])) as unknown as GeneratorSettings;
+          if (Object.values(next).some(value => !Number.isFinite(value))) throw new Error("Generator 값은 숫자여야 합니다.");
+          setSpecialData(prev => ({ ...prev, generator: next }));
+          break;
+        }
+        default: throw new Error("이 차트는 JSON 편집을 지원하지 않습니다.");
+      }
+      setDataToolError(null);
+    } catch (error) {
+      setDataToolError(error instanceof Error ? error.message : "JSON을 적용하지 못했습니다.");
+    }
+  };
+  const applyCsvData = () => {
+    try {
+      const rows = parseCsvRows(dataToolText);
+      if (rows.length < 2) throw new Error("헤더와 최소 1개의 데이터 행이 필요합니다.");
+      const rawHeaders = rows[0].map(header => header.trim());
+      const headers = rawHeaders.map(header => header.toLowerCase());
+      const records = rows.slice(1);
+      const col = (name: string, fallback = -1) => {
+        const index = headers.indexOf(name.toLowerCase());
+        return index >= 0 ? index : fallback;
+      };
+      const num = (value: string, label: string) => {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) throw new Error(`${label} 값 "${value}"이 숫자가 아닙니다.`);
+        return parsed;
+      };
+      switch (activeChartPolicy.dataEditor) {
+        case "category-series": {
+          if (headers.length < 2) throw new Error("label과 최소 1개의 series 열이 필요합니다.");
+          const nextLabels = records.map(record => record[0] ?? "");
+          const nextDatasets = rawHeaders.slice(1).map((name, seriesIndex) => ({ id: `csv-${Date.now()}-${seriesIndex}`, name: name || `Series ${seriesIndex + 1}`, data: records.map((record, rowIndex) => num(record[seriesIndex + 1], `행 ${rowIndex + 2}`)), color: effectivePalette[seriesIndex % effectivePalette.length] }));
+          setLabels(nextLabels); setDatasets(nextDatasets);
+          break;
+        }
+        case "single-value":
+        case "multi-value":
+          setDatasets(records.map((record, index) => ({ id: `csv-${Date.now()}-${index}`, name: record[col("name", 0)] || `Dataset ${index + 1}`, data: [num(record[col("value", 1)], `행 ${index + 2}`)], color: effectivePalette[index % effectivePalette.length] })));
+          break;
+        case "xy":
+        case "xyz": {
+          const grouped = new Map<string, any[]>();
+          records.forEach((record, index) => {
+            const name = record[col("series", 0)] || "Series 1";
+            const point = { x: num(record[col("x", 1)], `행 ${index + 2} X`), y: num(record[col("y", 2)], `행 ${index + 2} Y`), ...(activeChartPolicy.dataEditor === "xyz" ? { size: num(record[col("size", 3)], `행 ${index + 2} Size`) } : {}) };
+            grouped.set(name, [...(grouped.get(name) ?? []), point]);
+          });
+          if (activeChartPolicy.dataEditor === "xy") setSpecialData(prev => ({ ...prev, scatter: [...grouped].map(([name, points], index) => ({ id: `csv-xy-${index}`, name, points })) }));
+          else setSpecialData(prev => ({ ...prev, bubble: [...grouped].map(([name, points], index) => ({ id: `csv-xyz-${index}`, name, points })) }));
+          break;
+        }
+        case "range":
+          setSpecialData(prev => ({ ...prev, confidence: records.map((record, index) => ({ label: record[col("label", 0)], value: num(record[col("value", 1)], `행 ${index + 2}`), lower: num(record[col("lower", 2)], `행 ${index + 2}`), upper: num(record[col("upper", 3)], `행 ${index + 2}`) })) }));
+          break;
+        case "ohlc":
+          setSpecialData(prev => ({ ...prev, [activeCandleKey]: records.map((record, index) => ({ date: record[col("date", 0)], open: num(record[col("open", 1)], `행 ${index + 2}`), close: num(record[col("close", 2)], `행 ${index + 2}`), low: num(record[col("low", 3)], `행 ${index + 2}`), high: num(record[col("high", 4)], `행 ${index + 2}`) })) }));
+          break;
+        case "matrix":
+          setSpecialData(prev => ({ ...prev, [activeMatrixKey]: records.map((record, index) => ({ x: record[col("x", 0)], y: record[col("y", 1)], value: num(record[col("value", 2)], `행 ${index + 2}`) })) }));
+          break;
+        case "calendar":
+          setSpecialData(prev => ({ ...prev, calendarHeatmap: records.map((record, index) => ({ date: record[col("date", 0)], value: num(record[col("value", 1)], `행 ${index + 2}`) })) }));
+          break;
+        case "hierarchy":
+          setSpecialData(prev => ({ ...prev, hierarchy: records.map((record, index) => ({ id: record[col("id", 0)] || `node-${index}`, name: record[col("name", 1)] || `Node ${index + 1}`, parentId: record[col("parentid", 2)] ?? "", value: num(record[col("value", 3)], `행 ${index + 2}`) })) }));
+          break;
+        case "network": {
+          const nodes: NetworkNode[] = [], links: NetworkLink[] = [];
+          records.forEach((record, index) => {
+            if ((record[col("record", 0)] ?? "").toLowerCase() === "node") nodes.push({ id: record[col("id", 1)] || `node-${index}`, name: record[col("name", 2)] || `Node ${index + 1}`, category: record[col("category", 3)] || "Default" });
+            else links.push({ id: record[col("id", 1)] || `link-${index}`, source: record[col("source", 4)], target: record[col("target", 5)], value: num(record[col("value", 6)], `행 ${index + 2}`) });
+          });
+          if (!nodes.length || !links.length) throw new Error("node와 link 레코드가 모두 필요합니다.");
+          setSpecialData(prev => usesSankeyData ? { ...prev, sankeyNodes: nodes, sankeyLinks: links } : { ...prev, graphNodes: nodes, graphLinks: links });
+          break;
+        }
+        case "geo":
+          setSpecialData(prev => ({ ...prev, geoRegions: records.map((record, index) => ({ name: record[col("name", 0)], value: num(record[col("value", 1)], `행 ${index + 2}`), secondary: num(record[col("secondary", 2)] ?? "0", `행 ${index + 2}`) })) }));
+          break;
+        case "geo-route":
+          setSpecialData(prev => ({ ...prev, geoRoute: records.map((record, index) => ({ name: record[col("name", 0)], longitude: num(record[col("longitude", 1)], `행 ${index + 2}`), latitude: num(record[col("latitude", 2)], `행 ${index + 2}`) })) }));
+          break;
+        case "generator": {
+          const next = { ...specialData.generator };
+          records.forEach((record, index) => {
+            const key = record[col("key", 0)] as keyof GeneratorSettings;
+            if (!(key in next)) throw new Error(`행 ${index + 2}의 Generator key가 올바르지 않습니다.`);
+            next[key] = num(record[col("value", 1)], `행 ${index + 2}`);
+          });
+          setSpecialData(prev => ({ ...prev, generator: next }));
+          break;
+        }
+        default: throw new Error("이 차트는 CSV 가져오기를 지원하지 않습니다.");
+      }
+      setDataToolError(null);
+    } catch (error) {
+      setDataToolError(error instanceof Error ? error.message : "CSV를 적용하지 못했습니다.");
+    }
+  };
+  const handleCsvFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDataToolMode("csv");
+      setDataToolError(null);
+      setDataToolText(String(reader.result ?? ""));
+    };
+    reader.onerror = () => setDataToolError("CSV 파일을 읽지 못했습니다.");
+    reader.readAsText(file);
+  };
   const handlePrimaryColor = (hex: string) => { setHexInput(hex); if (isValidHex(hex)) setPrimaryColor(hex); };
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -2446,6 +3890,13 @@ export default function App() {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [openMenu]);
+
+  useEffect(() => {
+    if (activePaletteIndex === null) return;
+    const close = () => setActivePaletteIndex(null);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [activePaletteIndex]);
 
   const flashCopied = (key: string) => { setCopiedKey(key); setTimeout(() => setCopiedKey(null), 1800); };
 
@@ -2551,9 +4002,9 @@ export default function App() {
   const inputBorder = isDark ? "#3D3D5C" : "#E5E7EB";
 
   const echartsOption = useMemo(
-    () => buildEChartsOption(chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine),
+    () => buildEChartsOption(chartType, labels, chartDatasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine, specialData),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize.w, chartSize.h, autoResponsive, smoothLine]
+    [chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize.w, chartSize.h, autoResponsive, smoothLine, specialData]
   );
 
   return (
@@ -2641,7 +4092,7 @@ export default function App() {
                       {cat.items.map(t => {
                         const active = chartType === t.id;
                         return (
-                          <button key={t.id} onClick={() => setChartType(t.id)} title={t.label}
+                          <button key={t.id} onClick={() => selectChartType(t.id)} title={t.label}
                             style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "6px 4px", borderRadius: 8, border: `1px solid ${active ? "#6366F1" : inputBorder}`, background: active ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: active ? "#6366F1" : subText, fontSize: 9, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", lineHeight: 1.3, textAlign: "center" }}>
                             <ChartIcon type={t.id} color={active ? "#6366F1" : subText} />
                             {t.label}
@@ -2656,18 +4107,279 @@ export default function App() {
 
             {/* Data Input */}
             <Section title="Data Input" id="data" collapsed={collapsed.has("data")} onToggle={toggleSection} isDark={isDark}>
-              {STATIC_DEMO_CHARTS.has(chartType) ? (
+              {activeChartPolicy.dataEditor === "preset" ? (
                 <div style={{ display: "flex", gap: 8, padding: 10, borderRadius: 8, background: isDark ? "#1a1a2e" : "#F3F4F6", color: subText, fontSize: 11.5, lineHeight: 1.5 }}>
                   <Info size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span>이 차트는 프리셋 데모 데이터를 사용해요. Data Input을 수정해도 차트에는 반영되지 않아요.</span>
+                  <span>{activeChartPolicy.presetReason ?? "이 차트는 현재 샘플 데이터로 제공됩니다. 차트별 데이터 편집 스키마를 순차적으로 연결할 예정입니다."}</span>
                 </div>
-              ) : SINGLE_VALUE_CHARTS.has(chartType) ? (
+              ) : activeChartPolicy.dataEditor === "xy" || activeChartPolicy.dataEditor === "xyz" ? (() => {
+                const kind = activeChartPolicy.dataEditor === "xyz" ? "bubble" : "scatter";
+                const seriesList = kind === "bubble" ? specialData.bubble : specialData.scatter;
+                const hasSize = kind === "bubble";
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11.5, color: subText }}>{hasSize ? "X, Y, Size를 점 단위로 편집합니다." : "X와 Y 좌표를 점 단위로 편집합니다."}</span>
+                      <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                    </div>
+                    {seriesList.map((series, seriesIndex) => (
+                      <div key={series.id} style={{ border: `1px solid ${inputBorder}`, borderRadius: 8, overflow: "hidden" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 8px", background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: effectivePalette[seriesIndex % effectivePalette.length], flexShrink: 0 }} />
+                          <input aria-label={`Special series ${seriesIndex + 1} name`} value={series.name} onChange={e => updateXYSeriesName(kind, series.id, e.target.value)}
+                            style={{ flex: 1, minWidth: 0, height: 24, border: "none", background: "transparent", outline: "none", color: sectionText, fontSize: 11.5, fontWeight: 600, fontFamily: "Inter" }} />
+                          {seriesList.length > 1 && (
+                            <button aria-label={`Remove ${series.name}`} onClick={() => removeXYSeries(kind, series.id)} style={{ border: "none", background: "none", color: subText, cursor: "pointer", display: "flex", padding: 0 }}><X size={12} /></button>
+                          )}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: hasSize ? "1fr 1fr 1fr 30px" : "1fr 1fr 30px", padding: "5px 6px", gap: 5, background: isDark ? "#11111D" : "#fff" }}>
+                          {["X", "Y", ...(hasSize ? ["Size"] : []), ""].map((heading, index) => <span key={index} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                          {series.points.map((point, pointIndex) => (
+                            <div key={pointIndex} style={{ display: "contents" }}>
+                              <input aria-label={`${series.name} point ${pointIndex + 1} X`} type="number" value={point.x} onChange={e => updateXYPoint(kind, series.id, pointIndex, "x", e.target.value)}
+                                style={{ width: "100%", minWidth: 0, height: 29, padding: "0 6px", boxSizing: "border-box", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5, outline: "none" }} />
+                              <input aria-label={`${series.name} point ${pointIndex + 1} Y`} type="number" value={point.y} onChange={e => updateXYPoint(kind, series.id, pointIndex, "y", e.target.value)}
+                                style={{ width: "100%", minWidth: 0, height: 29, padding: "0 6px", boxSizing: "border-box", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5, outline: "none" }} />
+                              {hasSize && (
+                                <input aria-label={`${series.name} point ${pointIndex + 1} Size`} type="number" min={1} value={(point as XYZPoint).size} onChange={e => updateXYPoint(kind, series.id, pointIndex, "size", e.target.value)}
+                                  style={{ width: "100%", minWidth: 0, height: 29, padding: "0 6px", boxSizing: "border-box", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5, outline: "none" }} />
+                              )}
+                              <button aria-label={`Remove ${series.name} point ${pointIndex + 1}`} disabled={series.points.length <= 1} onClick={() => removeXYPoint(kind, series.id, pointIndex)}
+                                style={{ height: 29, border: "none", background: "transparent", color: series.points.length <= 1 ? inputBorder : subText, cursor: series.points.length <= 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><Trash2 size={11} /></button>
+                            </div>
+                          ))}
+                        </div>
+                        <button onClick={() => addXYPoint(kind, series.id)} style={{ width: "100%", height: 28, border: "none", borderTop: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 10.5, cursor: "pointer" }}><Plus size={10} style={{ verticalAlign: -1 }} /> Add point</button>
+                      </div>
+                    ))}
+                    <button onClick={() => addXYSeries(kind)} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add series</button>
+                  </div>
+                );
+              })() : activeChartPolicy.dataEditor === "range" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>Label, Value, Lower, Upper 범위를 편집합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ maxHeight: 310, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ minWidth: 430 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "130px repeat(3, 88px) 30px", padding: "6px", gap: 5, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                        {["Label", "Value", "Lower", "Upper", ""].map(heading => <span key={heading} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                      </div>
+                      {specialData.confidence.map((point, index) => (
+                        <div key={index} style={{ display: "grid", gridTemplateColumns: "130px repeat(3, 88px) 30px", padding: "5px 6px", gap: 5, borderBottom: index < specialData.confidence.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                          <input aria-label={`Range point ${index + 1} label`} value={point.label} onChange={e => updateRangePoint(index, "label", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          {(["value", "lower", "upper"] as const).map(field => (
+                            <input key={field} aria-label={`Range point ${index + 1} ${field}`} type="number" step="0.01" value={point[field]} onChange={e => updateRangePoint(index, field, e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          ))}
+                          <button aria-label={`Remove range point ${index + 1}`} disabled={specialData.confidence.length <= 1} onClick={() => removeRangePoint(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={addRangePoint} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add range point</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "ohlc" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>Date와 Open/Close/Low/High 값을 편집합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ maxHeight: 310, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ minWidth: 560 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "128px repeat(4, 92px) 30px", padding: "6px", gap: 5, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                        {["Date", "Open", "Close", "Low", "High", ""].map(heading => <span key={heading} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                      </div>
+                      {specialData[activeCandleKey].map((point, index) => (
+                        <div key={index} style={{ display: "grid", gridTemplateColumns: "128px repeat(4, 92px) 30px", padding: "5px 6px", gap: 5, borderBottom: index < specialData[activeCandleKey].length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                          <input aria-label={`OHLC point ${index + 1} date`} value={point.date} onChange={e => updateOHLCPoint(index, "date", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          {(["open", "close", "low", "high"] as const).map(field => (
+                            <input key={field} aria-label={`OHLC point ${index + 1} ${field}`} type="number" value={point[field]} onChange={e => updateOHLCPoint(index, field, e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          ))}
+                          <button aria-label={`Remove OHLC point ${index + 1}`} disabled={specialData[activeCandleKey].length <= 1} onClick={() => removeOHLCPoint(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={addOHLCPoint} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add OHLC row</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "matrix" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>X, Y와 셀 값을 직접 편집합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ maxHeight: 310, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ minWidth: 330 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 30px", padding: 6, gap: 5, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                        {["X", "Y", "Value", ""].map((heading, index) => <span key={index} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                      </div>
+                      {specialData[activeMatrixKey].map((cell, index) => (
+                        <div key={index} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px 30px", padding: "5px 6px", gap: 5, borderBottom: index < specialData[activeMatrixKey].length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                          <input aria-label={`Matrix cell ${index + 1} X`} value={cell.x} onChange={e => updateMatrixCell(index, "x", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          <input aria-label={`Matrix cell ${index + 1} Y`} value={cell.y} onChange={e => updateMatrixCell(index, "y", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          <input aria-label={`Matrix cell ${index + 1} value`} type="number" step="0.01" value={cell.value} onChange={e => updateMatrixCell(index, "value", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          <button aria-label={`Remove matrix cell ${index + 1}`} disabled={specialData[activeMatrixKey].length <= 1} onClick={() => removeMatrixCell(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={addMatrixCell} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add matrix cell</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "calendar" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>날짜별 값을 편집합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ maxHeight: 310, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 30px", padding: 6, gap: 5, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                      {["Date", "Value", ""].map((heading, index) => <span key={index} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                    </div>
+                    {specialData.calendarHeatmap.map((point, index) => (
+                      <div key={index} style={{ display: "grid", gridTemplateColumns: "1fr 100px 30px", padding: "5px 6px", gap: 5, borderBottom: index < specialData.calendarHeatmap.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                        <input aria-label={`Calendar point ${index + 1} date`} value={point.date} onChange={e => updateCalendarPoint(index, "date", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                        <input aria-label={`Calendar point ${index + 1} value`} type="number" value={point.value} onChange={e => updateCalendarPoint(index, "value", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                        <button aria-label={`Remove calendar point ${index + 1}`} disabled={specialData.calendarHeatmap.length <= 1} onClick={() => removeCalendarPoint(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addCalendarPoint} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add date</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "hierarchy" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>ID와 Parent ID로 계층을 구성합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ maxHeight: 310, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ minWidth: 480 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "110px 120px 110px 80px 30px", padding: 6, gap: 5, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                        {["ID", "Name", "Parent ID", "Value", ""].map((heading, index) => <span key={index} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                      </div>
+                      {specialData.hierarchy.map((row, index) => (
+                        <div key={row.id + index} style={{ display: "grid", gridTemplateColumns: "110px 120px 110px 80px 30px", padding: "5px 6px", gap: 5, borderBottom: index < specialData.hierarchy.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                          {(["id", "name", "parentId"] as const).map(field => (
+                            <input key={field} aria-label={`Hierarchy row ${index + 1} ${field}`} value={row[field]} onChange={e => updateHierarchyRow(index, field, e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          ))}
+                          <input aria-label={`Hierarchy row ${index + 1} value`} type="number" value={row.value} onChange={e => updateHierarchyRow(index, "value", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                          <button aria-label={`Remove hierarchy row ${index + 1}`} disabled={specialData.hierarchy.length <= 1} onClick={() => removeHierarchyRow(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={addHierarchyRow} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add hierarchy node</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "network" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>노드와 연결을 함께 편집합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: subText }}>Nodes</div>
+                  <div style={{ maxHeight: 170, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    {activeNetworkNodes.map((node, index) => (
+                      <div key={node.id} style={{ display: "grid", gridTemplateColumns: "1fr 95px 30px", padding: "5px 6px", gap: 5, borderBottom: index < activeNetworkNodes.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                        <input aria-label={`Network node ${index + 1} name`} value={node.name} onChange={e => updateNetworkNode(index, "name", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                        <input aria-label={`Network node ${index + 1} category`} value={node.category} onChange={e => updateNetworkNode(index, "category", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                        <button aria-label={`Remove network node ${index + 1}`} disabled={activeNetworkNodes.length <= 1} onClick={() => removeNetworkNode(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addNetworkNode} style={{ height: 29, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 10.5, cursor: "pointer" }}><Plus size={10} style={{ verticalAlign: -1 }} /> Add node</button>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: subText }}>Links</div>
+                  <div style={{ maxHeight: 190, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    {activeNetworkLinks.map((link, index) => (
+                      <div key={link.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 70px 30px", padding: "5px 6px", gap: 5, borderBottom: index < activeNetworkLinks.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                        {(["source", "target"] as const).map(field => (
+                          <select key={field} aria-label={`Network link ${index + 1} ${field}`} value={link[field]} onChange={e => updateNetworkLink(index, field, e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 4px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10 }}>
+                            {activeNetworkNodes.map(node => <option key={node.id} value={node.name}>{node.name}</option>)}
+                          </select>
+                        ))}
+                        <input aria-label={`Network link ${index + 1} value`} type="number" value={link.value} onChange={e => updateNetworkLink(index, "value", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                        <button aria-label={`Remove network link ${index + 1}`} onClick={() => removeNetworkLink(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addNetworkLink} disabled={activeNetworkNodes.length < 2} style={{ height: 29, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 10.5, cursor: "pointer" }}><Plus size={10} style={{ verticalAlign: -1 }} /> Add link</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "geo" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>GeoJSON 지역명과 지표 값을 편집합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ maxHeight: 310, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 88px 88px 30px", padding: 6, gap: 5, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                      {["Region", "Value", "Secondary", ""].map((heading, index) => <span key={index} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                    </div>
+                    {specialData.geoRegions.map((region, index) => (
+                      <div key={index} style={{ display: "grid", gridTemplateColumns: "1fr 88px 88px 30px", padding: "5px 6px", gap: 5, borderBottom: index < specialData.geoRegions.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                        <input aria-label={`Geo region ${index + 1} name`} value={region.name} onChange={e => updateGeoRegion(index, "name", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                        {(["value", "secondary"] as const).map(field => <input key={field} aria-label={`Geo region ${index + 1} ${field}`} type="number" value={region[field]} onChange={e => updateGeoRegion(index, field, e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />)}
+                        <button aria-label={`Remove geo region ${index + 1}`} disabled={specialData.geoRegions.length <= 1} onClick={() => removeGeoRegion(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addGeoRegion} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add region</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "geo-route" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>경로 순서와 경도·위도를 편집합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  <div style={{ maxHeight: 310, overflow: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 92px 92px 30px", padding: 6, gap: 5, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                      {["Point", "Longitude", "Latitude", ""].map((heading, index) => <span key={index} style={{ fontSize: 9.5, color: subText, textAlign: "center" }}>{heading}</span>)}
+                    </div>
+                    {specialData.geoRoute.map((point, index) => (
+                      <div key={index} style={{ display: "grid", gridTemplateColumns: "1fr 92px 92px 30px", padding: "5px 6px", gap: 5, borderBottom: index < specialData.geoRoute.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                        <input aria-label={`Geo route point ${index + 1} name`} value={point.name} onChange={e => updateGeoRoutePoint(index, "name", e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />
+                        {(["longitude", "latitude"] as const).map(field => <input key={field} aria-label={`Geo route point ${index + 1} ${field}`} type="number" step="0.0001" value={point[field]} onChange={e => updateGeoRoutePoint(index, field, e.target.value)} style={{ minWidth: 0, height: 29, padding: "0 6px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 10.5 }} />)}
+                        <button aria-label={`Remove geo route point ${index + 1}`} disabled={specialData.geoRoute.length <= 2} onClick={() => removeGeoRoutePoint(index)} style={{ border: "none", background: "transparent", color: subText, cursor: "pointer" }}><Trash2 size={11} /></button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={addGeoRoutePoint} style={{ height: 31, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}><Plus size={11} style={{ verticalAlign: -1 }} /> Add route point</button>
+                </div>
+              ) : activeChartPolicy.dataEditor === "generator" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: subText }}>대용량 데이터의 크기와 패턴을 생성합니다.</span>
+                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                  </div>
+                  {([
+                    ["Seed", "seed", 1, 999999],
+                    ...(chartType === "heat-large" ? [["Width", "heatWidth", 10, 200], ["Height", "heatHeight", 10, 200]] : []),
+                    ...(chartType === "lines-ny" ? [["Street density", "lineGrid", 10, 180], ["Canvas span", "lineSpan", 100, 10000]] : []),
+                    ...(chartType === "large-scale-area" ? [["Point count", "areaPoints", 100, 20000], ["Volatility", "areaVolatility", 1, 100]] : []),
+                  ] as [string, keyof GeneratorSettings, number, number][]).map(([label, field, min, max]) => (
+                    <label key={field} style={{ display: "grid", gridTemplateColumns: "1fr 100px", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 11.5, color: sectionText }}>{label}</span>
+                      <input aria-label={`Generator ${label}`} type="number" min={min} max={max} value={specialData.generator[field]} onChange={e => updateGeneratorSetting(field, e.target.value)}
+                        style={{ width: "100%", height: 31, padding: "0 8px", boxSizing: "border-box", borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 11.5, outline: "none" }} />
+                    </label>
+                  ))}
+                  <div style={{ padding: "8px 10px", borderRadius: 7, background: isDark ? "#171725" : "#F8FAFC", color: subText, fontSize: 10.5 }}>
+                    {chartType === "heat-large" && `${(Math.round(specialData.generator.heatWidth) + 1) * (Math.round(specialData.generator.heatHeight) + 1)} cells`}
+                    {chartType === "lines-ny" && `~${Math.round(2 * (Math.round(specialData.generator.lineGrid) + 1) * Math.round(specialData.generator.lineGrid) * 0.36)} street segments`}
+                    {chartType === "large-scale-area" && `${Math.round(specialData.generator.areaPoints)} time-series points`}
+                  </div>
+                  <div style={{ fontSize: 10.5, lineHeight: 1.45, color: subText }}>같은 Seed는 화면·PNG·SVG에서 같은 데이터를 생성합니다.</div>
+                  {chartType === "lines-ny" && (
+                    <div style={{ fontSize: 10.5, lineHeight: 1.45, color: subText }}>
+                      공식 예제의 대용량 `lines` 렌더링 방식을 유지하되, 외부 32개 바이너리 파일 대신 로컬에서 맨해튼형 도로망을 생성합니다.
+                    </div>
+                  )}
+                </div>
+              ) : activeChartPolicy.dataEditor === "single-value" ? (
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 500, color: subText, marginBottom: 8 }}>Value</div>
                   <input type="number" value={datasets[0]?.data[0] ?? ""} onChange={e => { const n = parseFloat(e.target.value); setDatasets(p => p.map((d, i) => i !== 0 ? d : { ...d, data: d.data.length ? d.data.map((v, j) => j === 0 ? (isNaN(n) ? v : n) : v) : [isNaN(n) ? 0 : n] })); }}
                     style={{ width: "100%", height: 32, padding: "0 8px", borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, outline: "none", background: inputBg, color: sectionText, fontFamily: "Inter" }} />
                 </div>
-              ) : MULTI_SINGLE_VALUE_CHARTS.has(chartType) ? (
+              ) : activeChartPolicy.dataEditor === "multi-value" ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {datasets.map((ds, di) => (
                     <div key={ds.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2683,65 +4395,140 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: subText, marginBottom: 8 }}>{Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "Y-Axis Labels" : "X-Axis Labels"}</div>
-                  <div style={{ borderRadius: 8, border: `1px solid ${inputBorder}`, padding: 8, display: "flex", flexWrap: "wrap", gap: 6, background: inputBg }}>
-                    {labels.map((l, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 11, color: sectionText, background: isDark ? "#0F0F1A" : "#fff" }}>
-                        {l}
-                        <button onClick={() => setLabels(p => p.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", color: subText, display: "flex", padding: 0 }}><X size={9} /></button>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ fontSize: 11.5, color: subText, lineHeight: 1.45 }}>
+                      {chartType === "line-aqi"
+                        ? "공식 예제처럼 AQI 라인 1개를 사용합니다. 오른쪽 6개 색상은 시리즈 범례가 아니라 값 구간 기준입니다."
+                        : Y_AXIS_CATEGORY_CHARTS.has(chartType)
+                          ? "행마다 Y 범주와 X 값을 함께 편집합니다."
+                          : chartType === "line-bump"
+                            ? "각 X 시점의 값을 오름차순으로 #1부터 다시 계산합니다. Y Series는 비교 대상입니다."
+                            : TWO_DATASET_CHARTS.has(chartType)
+                              ? "이 차트는 서로 다른 역할의 Y Series 2개를 사용합니다."
+                              : FIRST_DATASET_ONLY_CHARTS.has(chartType)
+                                ? "이 차트는 X 범주와 Y Series 1개를 사용합니다."
+                                : "행마다 X 범주와 각 Y 시리즈 값을 함께 편집합니다."}
+                    </div>
+                    {OFFICIAL_CATEGORY_SAMPLE_CHARTS.has(chartType) && (
+                      <button onClick={resetCategorySample} style={{ flexShrink: 0, border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>
+                        Reset sample
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ overflowX: "auto", border: `1px solid ${inputBorder}`, borderRadius: 8 }}>
+                    <div style={{ minWidth: 128 + editableDatasets.length * 112 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: `112px repeat(${editableDatasets.length}, 112px) 34px`, gap: 0, background: isDark ? "#171725" : "#F8FAFC", borderBottom: `1px solid ${inputBorder}` }}>
+                        <div style={{ padding: "8px", fontSize: 11, fontWeight: 600, color: subText }}>
+                          {Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "Y Category" : "X Category"}
+                        </div>
+                        {editableDatasets.map((ds, di) => (
+                          <div key={ds.id} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 6px", borderLeft: `1px solid ${inputBorder}` }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: effectivePalette[di % effectivePalette.length], flexShrink: 0 }} />
+                            <input
+                              aria-label={`Series ${di + 1} name`}
+                              value={ds.name}
+                              onChange={e => updateDatasetName(ds.id, e.target.value)}
+                              style={{ width: "100%", minWidth: 0, height: 25, border: "none", background: "transparent", outline: "none", color: sectionText, fontSize: 11, fontWeight: 600, fontFamily: "Inter" }}
+                            />
+                            {di > 0 && editableDatasets.length > datasetMinimum && (
+                              <button aria-label={`Remove ${ds.name}`} onClick={() => setDatasets(p => p.filter(d => d.id !== ds.id))} style={{ display: "flex", padding: 0, border: "none", background: "none", color: subText, cursor: "pointer" }}>
+                                <X size={11} />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <div />
                       </div>
-                    ))}
-                    <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
-                      onKeyDown={e => (e.key === "Enter" || e.key === ",") && (e.preventDefault(), (() => { const v = newLabel.trim(); if (v) { setLabels(p => [...p, v]); setNewLabel(""); } })())}
-                      placeholder="Add..." style={{ background: "transparent", border: "none", outline: "none", fontSize: 11, color: sectionText, width: 50, fontFamily: "Inter" }} />
+                      {labels.map((label, rowIndex) => (
+                        <div key={rowIndex} style={{ display: "grid", gridTemplateColumns: `112px repeat(${editableDatasets.length}, 112px) 34px`, borderBottom: rowIndex < labels.length - 1 ? `1px solid ${inputBorder}` : "none" }}>
+                          <input
+                            aria-label={`Category ${rowIndex + 1}`}
+                            value={label}
+                            onChange={e => updateDataPointLabel(rowIndex, e.target.value)}
+                            style={{ height: 34, minWidth: 0, padding: "0 8px", border: "none", outline: "none", background: inputBg, color: sectionText, fontSize: 11, fontFamily: "Inter" }}
+                          />
+                          {editableDatasets.map(ds => (
+                            <input
+                              key={ds.id}
+                              aria-label={`${ds.name} value for ${label}`}
+                              type="number"
+                              value={ds.data[rowIndex] ?? ""}
+                              onChange={e => updateDatasetValue(ds.id, rowIndex, e.target.value)}
+                              style={{ height: 34, minWidth: 0, padding: "0 8px", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: `1px solid ${inputBorder}`, outline: "none", background: inputBg, color: sectionText, fontSize: 11, fontFamily: "Inter" }}
+                            />
+                          ))}
+                          <button aria-label={`Remove ${label}`} onClick={() => removeDataPoint(rowIndex)} style={{ display: "flex", alignItems: "center", justifyContent: "center", borderTop: "none", borderRight: "none", borderBottom: "none", borderLeft: `1px solid ${inputBorder}`, background: inputBg, color: subText, cursor: "pointer" }}>
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                    <button onClick={addDataPoint} style={{ flex: "1 1 110px", height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 11.5, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: inputBg, color: subText }}>
+                      <Plus size={12} />+ {Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "Y Category" : "X Category"}
+                    </button>
+                    {canAddDataset && (
+                      <button onClick={addDataset} style={{ flex: "1 1 110px", height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 11.5, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: inputBg, color: subText }}>
+                        <Plus size={12} />+ {Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "X" : "Y"} Series
+                      </button>
+                    )}
+                    <button onClick={randomizeData} style={{ flex: "1 1 110px", height: 32, borderRadius: 6, border: "none", fontSize: 11.5, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: isDark ? "#2D2B5C" : "#EEF2FF", color: "#6366F1" }}>
+                      <Shuffle size={12} />Random Data
+                    </button>
                   </div>
                 </div>
-                {(FIRST_DATASET_ONLY_CHARTS.has(chartType) ? datasets.slice(0, 1) : datasets).map((ds, di) => (
-                  <div key={ds.id}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: effectivePalette[di % effectivePalette.length] }} />
-                      <span style={{ fontSize: 12, fontWeight: 500, color: subText, flex: 1 }}>{di === 0 ? (Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "X-Axis Values" : "Y-Axis Values") : ds.name}</span>
-                      {di > 0 && <button onClick={() => setDatasets(p => p.filter(d => d.id !== ds.id))} style={{ background: "none", border: "none", cursor: "pointer", color: subText, display: "flex" }}><X size={12} /></button>}
+              )}
+              {activeChartPolicy.dataEditor !== "preset" && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${inputBorder}` }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: dataToolMode === "closed" ? 0 : 9 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: sectionText }}>Data tools</span>
+                    <div style={{ display: "flex", gap: 5 }}>
+                      <button onClick={() => openDataTool("csv")} style={{ height: 27, padding: "0 8px", borderRadius: 5, border: `1px solid ${dataToolMode === "csv" ? "#6366F1" : inputBorder}`, background: dataToolMode === "csv" ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: dataToolMode === "csv" ? "#6366F1" : subText, fontSize: 10.5, cursor: "pointer" }}>CSV</button>
+                      <button onClick={() => openDataTool("json")} style={{ height: 27, padding: "0 8px", borderRadius: 5, border: `1px solid ${dataToolMode === "json" ? "#6366F1" : inputBorder}`, background: dataToolMode === "json" ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: dataToolMode === "json" ? "#6366F1" : subText, fontSize: 10.5, cursor: "pointer" }}>JSON</button>
+                      <button onClick={() => csvFileInputRef.current?.click()} style={{ height: 27, padding: "0 8px", borderRadius: 5, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 10.5, cursor: "pointer" }}>Upload CSV</button>
+                      <input ref={csvFileInputRef} type="file" accept=".csv,text/csv" onChange={e => { handleCsvFile(e.target.files?.[0]); e.currentTarget.value = ""; }} style={{ display: "none" }} />
                     </div>
-                    {labels.map((l, li) => (
-                      <div key={li} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                        <div style={{ width: 52, padding: "3px 6px", borderRadius: 4, fontSize: 11, fontWeight: 600, textAlign: "center", flexShrink: 0, background: isDark ? "#0F0F1A" : "#F3F4F6", color: subText }}>{l}</div>
-                        <input type="number" value={ds.data[li] ?? ""} onChange={e => { const n = parseFloat(e.target.value); setDatasets(p => p.map(d => d.id !== ds.id ? d : { ...d, data: d.data.map((v, i) => i === li ? (isNaN(n) ? v : n) : v) })); }}
-                          style={{ flex: 1, height: 30, padding: "0 8px", borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, outline: "none", background: inputBg, color: sectionText, fontFamily: "Inter" }} />
-                        <button onClick={() => setLabels(p => p.filter((_, i) => i !== li))} style={{ background: "none", border: "none", cursor: "pointer", color: subText, display: "flex", flexShrink: 0 }}><Trash2 size={12} /></button>
-                      </div>
-                    ))}
                   </div>
-                ))}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={randomizeData} style={{ flex: 1, height: 32, borderRadius: 6, border: "none", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: isDark ? "#2D2B5C" : "#EEF2FF", color: "#6366F1" }}>
-                    <Shuffle size={12} />Random Data
-                  </button>
-                  {!FIRST_DATASET_ONLY_CHARTS.has(chartType) && (
-                    <button onClick={addDataset} style={{ flex: 1, height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: inputBg, color: subText }}>
-                      <Plus size={12} />+ Dataset
-                    </button>
+                  {dataToolMode !== "closed" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                      <div style={{ fontSize: 10.5, color: subText }}>
+                        {dataToolMode === "csv" ? "현재 차트 스키마의 CSV를 편집하거나 파일 내용을 붙여넣으세요." : "현재 차트 데이터를 JSON으로 직접 편집합니다."}
+                      </div>
+                      <textarea
+                        aria-label={`${dataToolMode.toUpperCase()} data editor`}
+                        value={dataToolText}
+                        onChange={e => { setDataToolText(e.target.value); setDataToolError(null); }}
+                        spellCheck={false}
+                        style={{ width: "100%", minHeight: 180, maxHeight: 320, resize: "vertical", boxSizing: "border-box", padding: 9, borderRadius: 7, border: `1px solid ${dataToolError ? "#ef4444" : inputBorder}`, outline: "none", background: isDark ? "#11111D" : "#F8FAFC", color: sectionText, fontSize: 10.5, lineHeight: 1.45, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+                      />
+                      {dataToolError && <div style={{ padding: "6px 8px", borderRadius: 6, background: isDark ? "rgba(239,68,68,.12)" : "#FEF2F2", color: "#ef4444", fontSize: 10.5, lineHeight: 1.4 }}>{dataToolError}</div>}
+                      <div style={{ display: "flex", gap: 7 }}>
+                        <button onClick={dataToolMode === "csv" ? applyCsvData : applyJsonData} style={{ flex: 1, height: 31, border: "none", borderRadius: 6, background: "#6366F1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Apply {dataToolMode.toUpperCase()}</button>
+                        <button onClick={() => { setDataToolMode("closed"); setDataToolError(null); }} style={{ height: 31, padding: "0 10px", borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, fontSize: 11, cursor: "pointer" }}>Close</button>
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
               )}
             </Section>
 
             {/* Style Settings */}
             <Section title="Style Settings" id="style" collapsed={collapsed.has("style")} onToggle={toggleSection} isDark={isDark}>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, color: sectionText }}>Line Curve</span>
-                  <div style={{ display: "flex", gap: 4 }}>
-                    {([true, false] as const).map(v => (
-                      <button key={String(v)} onClick={() => setSmoothLine(v)} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", border: `1px solid ${smoothLine === v ? "#6366F1" : inputBorder}`, background: smoothLine === v ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: smoothLine === v ? "#6366F1" : subText }}>
-                        {v ? "Smooth" : "Sharp"}
-                      </button>
-                    ))}
+                {SMOOTHABLE_CHARTS.has(chartType) && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, color: sectionText }}>Line Curve</span>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {([true, false] as const).map(v => (
+                        <button key={String(v)} onClick={() => setSmoothLine(v)} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", border: `1px solid ${smoothLine === v ? "#6366F1" : inputBorder}`, background: smoothLine === v ? (isDark ? "#2D2B5C" : "#EEF2FF") : inputBg, color: smoothLine === v ? "#6366F1" : subText }}>
+                          {v ? "Smooth" : "Sharp"}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 13, color: sectionText }}>Theme</span>
                   <button onClick={() => setTheme(t => t === "light" ? "dark" : "light")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter" }}>
@@ -2759,16 +4546,82 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, color: sectionText, marginBottom: 8 }}>Auto Palette</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, color: sectionText }}>Auto Palette</span>
+                    <span style={{ fontSize: 10, color: subText }}>{activeChartPolicy.colorPolicy}</span>
+                  </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                     {effectivePalette.map((color, i) => (
                       <div key={i} style={{ position: "relative" }}>
-                        <input type="color" value={color} onChange={e => { if (!isValidHex(e.target.value)) return; setManualPalette(prev => { const n = [...prev]; while (n.length <= i) n.push(""); n[i] = e.target.value; return n; }); }} style={{ opacity: 0, position: "absolute", inset: 0, width: "100%", height: "100%", cursor: "pointer" }} />
-                        <div style={{ width: 32, height: 32, borderRadius: 6, background: color, border: `2px solid ${manualPalette[i] ? "#6366F1" : "transparent"}`, pointerEvents: "none" }} />
+                        <button
+                          type="button"
+                          aria-label={`Edit palette color ${i + 1}`}
+                          title={`${manualPalette[i] ? "Custom" : "Generated"} color ${i + 1}: ${color}`}
+                          disabled={isPaletteLocked}
+                          onClick={() => openPalettePicker(i)}
+                          style={{ position: "relative", width: 32, height: 32, padding: 0, borderRadius: 7, background: color, border: `2px solid ${activePaletteIndex === i || manualPalette[i] ? "#6366F1" : inputBorder}`, cursor: isPaletteLocked ? "not-allowed" : "pointer", opacity: isPaletteLocked ? 0.42 : 1, boxShadow: activePaletteIndex === i ? "0 0 0 2px rgba(99,102,241,.18)" : "none" }}
+                        >
+                          {manualPalette[i] && <span style={{ position: "absolute", right: 2, top: 2, width: 6, height: 6, borderRadius: "50%", background: "#fff", boxShadow: "0 0 0 1px rgba(0,0,0,.25)" }} />}
+                        </button>
+                        {activePaletteIndex === i && (
+                          <div
+                            onMouseDown={e => e.stopPropagation()}
+                            style={{ position: "absolute", zIndex: 30, top: 38, ...(i >= 4 ? { right: 0 } : { left: 0 }), width: 210, padding: 10, borderRadius: 9, border: `1px solid ${inputBorder}`, background: isDark ? "#181827" : "#fff", boxShadow: "0 10px 30px rgba(15,23,42,.18)" }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
+                              <span style={{ fontSize: 11.5, fontWeight: 600, color: sectionText }}>Palette color {i + 1}</span>
+                              <span style={{ padding: "2px 6px", borderRadius: 10, fontSize: 9.5, background: manualPalette[i] ? (isDark ? "#2D2B5C" : "#EEF2FF") : (isDark ? "#272736" : "#F3F4F6"), color: manualPalette[i] ? "#818CF8" : subText }}>
+                                {manualPalette[i] ? "Custom" : "Generated"}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <input
+                                aria-label={`Choose palette color ${i + 1}`}
+                                type="color"
+                                value={color}
+                                onChange={e => {
+                                  setPaletteHexInput(e.target.value);
+                                  setPaletteOverride(i, e.target.value);
+                                }}
+                                style={{ width: 36, height: 32, padding: 2, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, cursor: "pointer" }}
+                              />
+                              <input
+                                aria-label={`Palette color ${i + 1} hex value`}
+                                value={paletteHexInput}
+                                maxLength={7}
+                                onChange={e => {
+                                  setPaletteHexInput(e.target.value);
+                                  setPaletteOverride(i, e.target.value);
+                                }}
+                                style={{ flex: 1, minWidth: 0, height: 32, padding: "0 8px", borderRadius: 6, border: `1px solid ${inputBorder}`, outline: "none", background: inputBg, color: sectionText, fontSize: 12, fontFamily: "monospace" }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!manualPalette[i]}
+                              onClick={() => resetPaletteColor(i)}
+                              style={{ width: "100%", height: 28, marginTop: 8, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: manualPalette[i] ? subText : (isDark ? "#4B4B5D" : "#CBD5E1"), fontSize: 10.5, cursor: manualPalette[i] ? "pointer" : "default" }}
+                            >
+                              Reset this color
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
-                    <button onClick={() => { setPalette(generatePalette(primaryColor)); setManualPalette([]); }} style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><RefreshCw size={12} /></button>
+                    <button
+                      title="Reset all palette colors"
+                      disabled={isPaletteLocked}
+                      onClick={() => { setPalette(generatePalette(primaryColor)); setManualPalette([]); setActivePaletteIndex(null); }}
+                      style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: subText, cursor: isPaletteLocked ? "not-allowed" : "pointer", opacity: isPaletteLocked ? 0.42 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >
+                      <RefreshCw size={12} />
+                    </button>
                   </div>
+                  {isPaletteLocked && (
+                    <div style={{ marginTop: 7, fontSize: 10.5, lineHeight: 1.45, color: subText }}>
+                      이 차트는 공식 예제의 의미 색상을 고정해서 사용합니다. Primary/Palette는 다른 차트에 전환하면 적용됩니다.
+                    </div>
+                  )}
                 </div>
               </div>
             </Section>
