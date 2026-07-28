@@ -292,7 +292,7 @@ Phase 3 결과:
 Phase 4 결과:
 
 - Large Heatmap은 Width/Height/Seed로 셀 수와 패턴을 생성한다.
-- New York Streets는 Street Density/Canvas Span/Seed로 맨해튼형 선분을 생성한다.
+- Korea Streets는 사전 가공한 대한민국 실제 도로망을 주요·간선·지방·도시 도로 레이어로 로드한다.
 - Large-Scale Area는 Point Count/Volatility/Seed로 시계열을 생성한다.
 - Data Input을 지원하는 차트는 현재 스키마에 맞는 CSV 템플릿을 열어 편집·적용할 수 있다.
 - 로컬 CSV 파일을 읽어 같은 편집기에 불러올 수 있다.
@@ -366,8 +366,8 @@ Phase 7 기준:
 
 - [x] Scatter on Single Axis를 요일별 7개 `singleAxis`와 7개 Scatter Series 구조로 변경
 - [x] 시간축을 공식 예제와 같은 24시간 범주로 확장
-- [x] `Synthetic Large Lines`를 `New York Streets` 카탈로그 항목으로 교체
-- [x] 공식 `lines-ny`의 검은 배경·대용량 Lines·lighter blend 구조를 로컬 맨해튼형 도로망으로 재현
+- [x] `Synthetic Large Lines`를 `Korea Streets` 카탈로그 항목으로 교체
+- [x] 대한민국 실제 OpenStreetMap 도로망을 검은 배경·대용량 Lines·lighter blend 구조로 구현
 - [x] Treemap의 Branch A/B/C 중간 계층을 제거하고 단일 영역을 직접 항목별로 분할
 - [x] Treemap·Large Heatmap·Covariance Matrix의 Gradient에 Primary/Auto Palette 반영
 - [x] 공식 고정색 차트는 Palette를 잠그고 고정색 정책 안내 표시

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-28T06:47:44.670Z",
+  "coordinateScale": 100000,
+  "source": "OpenStreetMap via Esri OSM Highways feature service",
+  "attribution": "© OpenStreetMap contributors",
+  "license": "ODbL 1.0",
+  "groups": [
+    {
+      "id": "major",
+      "file": "major.bin",
+      "lines": 105589,
+      "points": 380466,
+      "bytes": 3466096
+    },
+    {
+      "id": "arterial",
+      "file": "arterial.bin",
+      "lines": 56764,
+      "points": 203126,
+      "bytes": 1852076
+    },
+    {
+      "id": "local",
+      "file": "local.bin",
+      "lines": 80630,
+      "points": 255861,
+      "bytes": 2369420
+    },
+    {
+      "id": "urban",
+      "file": "urban.bin",
+      "lines": 179661,
+      "points": 514601,
+      "bytes": 4835464
+    }
+  ]
+}

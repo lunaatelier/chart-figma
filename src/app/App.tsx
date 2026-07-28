@@ -19,12 +19,23 @@ interface NetworkNode { id: string; name: string; category: string; }
 interface NetworkLink { id: string; source: string; target: string; value: number; }
 interface GeoRegionRow { name: string; value: number; secondary: number; }
 interface GeoRoutePoint { name: string; longitude: number; latitude: number; }
+type KoreaRoadGroupId = "urban" | "local" | "arterial" | "major";
+interface PackedKoreaRoadGroup {
+  id: KoreaRoadGroupId;
+  data: Float64Array;
+  lines: number;
+  points: number;
+}
+interface KoreaRoadData {
+  groups: Record<KoreaRoadGroupId, PackedKoreaRoadGroup>;
+  totalLines: number;
+  totalPoints: number;
+  attribution: string;
+}
 interface GeneratorSettings {
   seed: number;
   heatWidth: number;
   heatHeight: number;
-  lineGrid: number;
-  lineSpan: number;
   areaPoints: number;
   areaVolatility: number;
 }
@@ -116,6 +127,84 @@ function loadUSAMap(): Promise<void> {
     });
 
   return usaMapPromise;
+}
+
+// ─── Korea Streets Asset Loader ──────────────────────────────────────────────
+interface KoreaRoadManifest {
+  coordinateScale: number;
+  attribution: string;
+  groups: Array<{ id: KoreaRoadGroupId; file: string; lines: number; points: number }>;
+}
+
+let koreaRoadDataPromise: Promise<KoreaRoadData> | null = null;
+
+function decodeKoreaRoadBinary(buffer: ArrayBuffer, scale: number, id: KoreaRoadGroupId): PackedKoreaRoadGroup {
+  const view = new DataView(buffer);
+  if (
+    view.byteLength < 12 ||
+    String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3)) !== "KRD1"
+  ) {
+    throw new Error(`Invalid Korea road binary: ${id}`);
+  }
+  const lines = view.getUint32(4, true);
+  const points = view.getUint32(8, true);
+  const packed = new Float64Array(lines + points * 2);
+  let sourceOffset = 12;
+  let targetOffset = 0;
+  for (let lineIndex = 0; lineIndex < lines; lineIndex++) {
+    const count = view.getUint32(sourceOffset, true);
+    sourceOffset += 4;
+    packed[targetOffset++] = count;
+    for (let pointIndex = 0; pointIndex < count; pointIndex++) {
+      packed[targetOffset++] = view.getInt32(sourceOffset, true) / scale;
+      packed[targetOffset++] = view.getInt32(sourceOffset + 4, true) / scale;
+      sourceOffset += 8;
+    }
+  }
+  if (sourceOffset !== view.byteLength || targetOffset !== packed.length) {
+    throw new Error(`Corrupt Korea road binary: ${id}`);
+  }
+  return { id, data: packed, lines, points };
+}
+
+function loadKoreaStreetAssets(): Promise<KoreaRoadData> {
+  if (koreaRoadDataPromise) return koreaRoadDataPromise;
+  const base = import.meta.env.BASE_URL;
+  koreaRoadDataPromise = Promise.all([
+    fetch(`${base}maps/KOR.json`).then(async response => {
+      if (!response.ok) throw new Error(`Korea map load failed: ${response.status}`);
+      const geoJson = await response.json();
+      if (geoJson?.type !== "FeatureCollection" || !Array.isArray(geoJson.features)) {
+        throw new Error("Invalid Korea GeoJSON");
+      }
+      if (!echarts.getMap("KOR")) echarts.registerMap("KOR", geoJson);
+    }),
+    fetch(`${base}data/korea-roads/manifest.json`).then(async response => {
+      if (!response.ok) throw new Error(`Korea roads manifest load failed: ${response.status}`);
+      return response.json() as Promise<KoreaRoadManifest>;
+    }),
+  ]).then(async ([, manifest]) => {
+    const decoded = await Promise.all(manifest.groups.map(async group => {
+      const response = await fetch(`${base}data/korea-roads/${group.file}`);
+      if (!response.ok) throw new Error(`Korea roads load failed (${group.id}): ${response.status}`);
+      const packed = decodeKoreaRoadBinary(await response.arrayBuffer(), manifest.coordinateScale, group.id);
+      if (packed.lines !== group.lines || packed.points !== group.points) {
+        throw new Error(`Korea roads manifest mismatch: ${group.id}`);
+      }
+      return packed;
+    }));
+    const groups = Object.fromEntries(decoded.map(group => [group.id, group])) as Record<KoreaRoadGroupId, PackedKoreaRoadGroup>;
+    return {
+      groups,
+      totalLines: decoded.reduce((sum, group) => sum + group.lines, 0),
+      totalPoints: decoded.reduce((sum, group) => sum + group.points, 0),
+      attribution: manifest.attribution,
+    };
+  }).catch(error => {
+    koreaRoadDataPromise = null;
+    throw error;
+  });
+  return koreaRoadDataPromise;
 }
 
 // Deterministic PRNG (mulberry32) seeded from a chart id — so a "static demo" chart's fake
@@ -218,7 +307,7 @@ function createCategoryInputForChart(chartId: string): CategoryChartInput {
   if (chartId === "bar-negative") return createNegativeBarInput();
   const input = createDefaultCategoryInput();
   if (chartId === "scatter-single") return { ...input, title: "Scatter on Single Axis" };
-  if (chartId === "lines-ny") return { ...input, title: "New York Streets — Large Lines" };
+  if (chartId === "lines-ny") return { ...input, title: "" };
   if (chartId === "treemap-basic") return { ...input, title: "Gradient Mapping" };
   return input;
 }
@@ -346,7 +435,7 @@ export const ECHARTS_CATALOGUE = [
     cat: "Special", items: [
       { id: "pictorial-bar", label: "Pictorial Bar" },
       { id: "share-dataset", label: "Share Dataset" },
-      { id: "lines-ny", label: "New York Streets" },
+      { id: "lines-ny", label: "Korea Streets" },
     ],
   },
 ];
@@ -435,7 +524,7 @@ const CHART_POLICY_OVERRIDES: Partial<Record<string, Partial<ChartPolicy>>> = {
   "heat-calendar": { dataEditor: "calendar", colorPolicy: "gradient" },
   "heat-large": { dataEditor: "generator", colorPolicy: "gradient" },
   "large-scale-area": { dataEditor: "generator", colorPolicy: "series" },
-  "lines-ny": { dataEditor: "generator", colorPolicy: "series" },
+  "lines-ny": { dataEditor: "generator", colorPolicy: "official-fixed" },
   "matrix-covariance": { dataEditor: "matrix", colorPolicy: "gradient" },
   "tree-lr": { dataEditor: "hierarchy", colorPolicy: "series" },
   "treemap-basic": { dataEditor: "hierarchy", colorPolicy: "gradient" },
@@ -727,8 +816,6 @@ function createDefaultSpecialChartData(): SpecialChartData {
       seed: 42,
       heatWidth: 100,
       heatHeight: 100,
-      lineGrid: 110,
-      lineSpan: 1000,
       areaPoints: 1500,
       areaVolatility: 12,
     },
@@ -766,6 +853,7 @@ function buildEChartsOption(
   autoResponsive: boolean,
   smoothLine: boolean,
   specialData: SpecialChartData,
+  koreaRoadData: KoreaRoadData | null,
 ): echarts.EChartsOption {
   // Static-demo charts ignore Data Input and fabricate their own numbers — but this
   // function gets re-invoked on every theme toggle, resize, and SVG export, so without a
@@ -2387,78 +2475,63 @@ function buildEChartsOption(
     }
 
     case "lines-ny": {
-      // Official example streams ~1M real NYC street segments from 32 binary chunk files
-      // fetched over XHR. Reinterpreted as a self-contained rendering-technique demo (no
-      // external asset, no geo map) — a synthetic street-grid of 2-point `lines` series
-      // entries, deterministic per the chart's seeded rand so the "randomness" (jitter) is
-      // stable across renders while segment count stays exact (no probabilistic skipping).
-      const gridN = Math.max(10, Math.min(180, Math.round(specialData.generator.lineGrid)));
-      const span = Math.max(100, Math.min(10000, Math.round(specialData.generator.lineSpan)));
-      const lineRand = createSeededRand(`lines-ny-${specialData.generator.seed}`).rand;
-      const step = span / gridN;
-      const jitter = () => (lineRand(-30, 30) / 100) * step;
-      const lineData: { coords: [number, number][] }[] = [];
-      const insideStreetShape = (x: number, y: number) => {
-        const normalizedY = Math.max(0, Math.min(1, y / span));
-        const normalizedX = x / span;
-        const center = 0.5 + Math.sin(normalizedY * Math.PI * 1.35) * 0.055;
-        const halfWidth = 0.055 + Math.sin(Math.PI * Math.pow(normalizedY, 0.85)) * 0.19;
-        return Math.abs(normalizedX - center) <= halfWidth;
+      const streetColor = "#f5a000";
+      const groupStyle: Record<KoreaRoadGroupId, { width: number; opacity: number; z: number }> = {
+        urban: { width: 0.18, opacity: 0.12, z: 1 },
+        local: { width: 0.24, opacity: 0.18, z: 2 },
+        arterial: { width: 0.38, opacity: 0.34, z: 3 },
+        major: { width: 0.65, opacity: 0.72, z: 4 },
       };
-      for (let r = 0; r <= gridN; r++) {
-        const y = r * step + jitter();
-        for (let cSeg = 0; cSeg < gridN; cSeg++) {
-          const x1 = cSeg * step;
-          const x2 = (cSeg + 1) * step;
-          if (insideStreetShape((x1 + x2) / 2, y)) {
-            lineData.push({ coords: [[x1, y], [x2, y + jitter()]] });
-          }
-        }
-      }
-      for (let cIdx = 0; cIdx <= gridN; cIdx++) {
-        const x = cIdx * step + jitter();
-        for (let rSeg = 0; rSeg < gridN; rSeg++) {
-          const y1 = rSeg * step;
-          const y2 = (rSeg + 1) * step;
-          if (insideStreetShape(x, (y1 + y2) / 2)) {
-            lineData.push({ coords: [[x, y1], [x + jitter(), y2]] });
-          }
-        }
-      }
-      for (let index = 0; index < gridN * 2; index++) {
-        const y1 = (index / (gridN * 2)) * span;
-        const y2 = ((index + 1) / (gridN * 2)) * span;
-        const x1 = span * (0.34 + 0.28 * (y1 / span) + Math.sin(y1 / span * Math.PI * 2) * 0.025);
-        const x2 = span * (0.34 + 0.28 * (y2 / span) + Math.sin(y2 / span * Math.PI * 2) * 0.025);
-        if (insideStreetShape(x1, y1) || insideStreetShape(x2, y2)) lineData.push({ coords: [[x1, y1], [x2, y2]] });
-      }
-      const nyTitle = titleCfg
-        ? { ...titleCfg, textStyle: { ...(titleCfg.textStyle as object), color: "#fff" } }
-        : { text: "New York Streets — Large Lines", left: "center", top: 8, textStyle: { color: "#fff", fontFamily: "Inter", fontSize: titleSz, fontWeight: "bold" } };
+      const roadSeries = (["urban", "local", "arterial", "major"] as KoreaRoadGroupId[]).map(groupId => ({
+        name: groupId,
+        type: "lines",
+        coordinateSystem: "geo",
+        polyline: true,
+        dimensions: ["value"],
+        large: true,
+        largeThreshold: 2000,
+        progressive: 20000,
+        progressiveThreshold: 10000,
+        silent: true,
+        animation: false,
+        blendMode: "lighter",
+        z: groupStyle[groupId].z,
+        lineStyle: {
+          color: streetColor,
+          width: groupStyle[groupId].width,
+          opacity: groupStyle[groupId].opacity,
+        },
+        data: koreaRoadData?.groups[groupId]?.data ?? new Float64Array(),
+      }));
       return {
         backgroundColor: "#111",
-        title: nyTitle,
+        title: titleCfg ? { ...titleCfg, textStyle: { ...(titleCfg.textStyle as object), color: "#fff" } } : undefined,
         tooltip: { show: false },
-        xAxis: { type: "value", min: 0, max: span, show: false },
-        yAxis: { type: "value", min: 0, max: span, show: false, inverse: true },
-        grid: { left: 4, right: 4, top: title ? topPad : 8, bottom: 4 },
-        series: [{
-          type: "lines", coordinateSystem: "cartesian2d",
-          xAxisIndex: 0, yAxisIndex: 0,
-          polyline: false,
-          // progressive:0 disables ECharts' default chunked-over-frames rendering for
-          // series above ~3000 points — without a running animation loop (animation:false
-          // below) nothing ever ticks the later chunks, so only the first ~3000 lines were
-          // drawn and the rest of the canvas stayed blank.
-          progressive: 0,
-          large: true,
-          largeThreshold: 2000,
+        geo: {
+          map: "KOR",
+          roam: true,
           silent: true,
-          animation: false,
-          blendMode: "lighter",
-          lineStyle: { color: palette[0] ?? "#6366f1", width: 0.55, opacity: 0.42 },
-          data: lineData,
-        } as any],
+          layoutCenter: ["50%", title ? "53%" : "50%"],
+          layoutSize: title ? "87%" : "94%",
+          itemStyle: {
+            areaColor: "transparent",
+            borderColor: "rgba(245,160,0,0.24)",
+            borderWidth: 0.7,
+          },
+          emphasis: { disabled: true },
+        },
+        graphic: [{
+          type: "text",
+          right: 8,
+          bottom: 6,
+          silent: true,
+          style: {
+            text: koreaRoadData?.attribution ?? "© OpenStreetMap contributors",
+            fill: "rgba(255,255,255,0.52)",
+            font: `${isSmall ? 8 : 10}px Inter`,
+          },
+        }],
+        series: roadSeries as any,
         legend: { show: false },
       } as any;
     }
@@ -3056,13 +3129,62 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
 // pixels), so a chart with 10k+ points produces a huge/laggy SVG. Downsample large series
 // for the SVG path only — PNG keeps the full dataset since it costs nothing extra there.
 const SVG_POINT_LIMIT = 3000;
+function inspectPackedPolylines(data: ArrayLike<number>, limit: number): { lineCount: number; sampled: { coords: [number, number][] }[] } {
+  let offset = 0;
+  let lineCount = 0;
+  while (offset < data.length) {
+    const count = Number(data[offset++]);
+    if (!Number.isFinite(count) || count < 2 || offset + count * 2 > data.length) break;
+    offset += count * 2;
+    lineCount++;
+  }
+  const step = Math.max(1, Math.ceil(lineCount / limit));
+  const sampled: { coords: [number, number][] }[] = [];
+  offset = 0;
+  let lineIndex = 0;
+  while (offset < data.length) {
+    const count = Number(data[offset++]);
+    if (!Number.isFinite(count) || count < 2 || offset + count * 2 > data.length) break;
+    if (lineIndex % step === 0 && sampled.length < limit) {
+      const coords: [number, number][] = [];
+      for (let pointIndex = 0; pointIndex < count; pointIndex++) {
+        coords.push([Number(data[offset + pointIndex * 2]), Number(data[offset + pointIndex * 2 + 1])]);
+      }
+      sampled.push({ coords });
+    }
+    offset += count * 2;
+    lineIndex++;
+  }
+  return { lineCount, sampled };
+}
+
 function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.EChartsOption; truncated: boolean; originalCount: number } {
   let truncated = false;
   let originalCount = 0;
   let nextXAxis = option.xAxis;
   let nextYAxis = option.yAxis;
   const seriesArr = Array.isArray(option.series) ? option.series : option.series ? [option.series] : [];
+  const packedLineSeriesCount = Math.max(1, seriesArr.filter((s: any) =>
+    s?.type === "lines" && s.polyline && ArrayBuffer.isView(s.data)
+  ).length);
+  const packedLineLimit = Math.max(1, Math.floor(SVG_POINT_LIMIT / packedLineSeriesCount));
   const newSeries = seriesArr.map((s: any) => {
+    if (s.type === "lines" && s.polyline && ArrayBuffer.isView(s.data) && "length" in s.data) {
+      const { lineCount, sampled } = inspectPackedPolylines(s.data as ArrayLike<number>, packedLineLimit);
+      if (lineCount > packedLineLimit) {
+        truncated = true;
+        originalCount += lineCount;
+        return {
+          ...s,
+          data: sampled,
+          large: false,
+          progressive: 0,
+          animation: false,
+          z: s.zlevel ?? s.z ?? 0,
+          zlevel: 0,
+        };
+      }
+    }
     if (Array.isArray(s.data) && s.data.length > SVG_POINT_LIMIT) {
       truncated = true;
       originalCount = Math.max(originalCount, s.data.length);
@@ -3139,7 +3261,6 @@ function EChartsView({ option, size, theme, exportRef }: {
   // renders the old cartesian view on top of the new polar axes. Since notMerge:true
   // already discards all prior state on every update anyway, a full re-init costs little
   // and sidesteps the bug for this and any other future coordinate-system-switching chart.
-  const optionKey = useMemo(() => JSON.stringify(option), [option]);
   useEffect(() => {
     const el = divRef.current; if (!el) return;
     instanceRef.current?.dispose();
@@ -3150,7 +3271,7 @@ function EChartsView({ option, size, theme, exportRef }: {
     exportRef.current = inst;
     return () => { inst.dispose(); if (instanceRef.current === inst) instanceRef.current = null; if (exportRef.current === inst) exportRef.current = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [optionKey, size.w, size.h, theme]);
+  }, [option, size.w, size.h, theme]);
 
   const bg = theme === "dark" ? "#1E1E2E" : "#ffffff";
   const previewPad = size.w <= 400 ? 20 : 40;
@@ -3209,6 +3330,9 @@ export default function App() {
     echarts.getMap("USA") ? "ready" : MAP_CHART_IDS.has(chartType) ? "loading" : "idle"
   );
   const [mapRetryToken, setMapRetryToken] = useState(0);
+  const [koreaRoadData, setKoreaRoadData] = useState<KoreaRoadData | null>(null);
+  const [koreaRoadStatus, setKoreaRoadStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [koreaRoadRetryToken, setKoreaRoadRetryToken] = useState(0);
 
   const echartsExportRef = useRef<echarts.ECharts | null>(null);
   const csvFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -3247,6 +3371,27 @@ export default function App() {
       .catch(() => { if (!cancelled) setMapStatus("error"); });
     return () => { cancelled = true; };
   }, [chartType, mapRetryToken]);
+
+  useEffect(() => {
+    if (chartType !== "lines-ny") return;
+    if (koreaRoadData && echarts.getMap("KOR")) {
+      setKoreaRoadStatus("ready");
+      return;
+    }
+    let cancelled = false;
+    setKoreaRoadStatus("loading");
+    loadKoreaStreetAssets()
+      .then(data => {
+        if (!cancelled) {
+          setKoreaRoadData(data);
+          setKoreaRoadStatus("ready");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setKoreaRoadStatus("error");
+      });
+    return () => { cancelled = true; };
+  }, [chartType, koreaRoadData, koreaRoadRetryToken]);
 
   useEffect(() => {
     setDataToolMode("closed");
@@ -3951,7 +4096,10 @@ export default function App() {
   };
 
   const getSvgString = (): { svg: string; truncated: boolean; originalCount: number } | null => {
-    if (MAP_CHART_IDS.has(chartType) && mapStatus !== "ready") return null;
+    if (
+      (MAP_CHART_IDS.has(chartType) && mapStatus !== "ready") ||
+      (chartType === "lines-ny" && koreaRoadStatus !== "ready")
+    ) return null;
     // Reuse the same option object already on screen (echartsOption) instead of calling
     // buildEChartsOption() again — for static-demo charts that build fresh random data,
     // a second call used to produce a different dataset than what's actually rendered.
@@ -4021,9 +4169,9 @@ export default function App() {
   const inputBorder = isDark ? "#3D3D5C" : "#E5E7EB";
 
   const echartsOption = useMemo(
-    () => buildEChartsOption(chartType, labels, chartDatasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine, specialData),
+    () => buildEChartsOption(chartType, labels, chartDatasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine, specialData, koreaRoadData),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize.w, chartSize.h, autoResponsive, smoothLine, specialData]
+    [chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize.w, chartSize.h, autoResponsive, smoothLine, specialData, koreaRoadData]
   );
 
   return (
@@ -4365,13 +4513,16 @@ export default function App() {
               ) : activeChartPolicy.dataEditor === "generator" ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ fontSize: 11.5, color: subText }}>대용량 데이터의 크기와 패턴을 생성합니다.</span>
-                    <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                    <span style={{ fontSize: 11.5, color: subText }}>
+                      {chartType === "lines-ny" ? "실제 대한민국 도로망을 대용량 Lines로 렌더링합니다." : "대용량 데이터의 크기와 패턴을 생성합니다."}
+                    </span>
+                    {chartType !== "lines-ny" && (
+                      <button onClick={resetSpecialSample} style={{ border: "none", background: "none", color: "#6366F1", fontSize: 10.5, cursor: "pointer" }}>Reset sample</button>
+                    )}
                   </div>
                   {([
-                    ["Seed", "seed", 1, 999999],
+                    ...(chartType !== "lines-ny" ? [["Seed", "seed", 1, 999999]] : []),
                     ...(chartType === "heat-large" ? [["Width", "heatWidth", 10, 200], ["Height", "heatHeight", 10, 200]] : []),
-                    ...(chartType === "lines-ny" ? [["Street density", "lineGrid", 10, 180], ["Canvas span", "lineSpan", 100, 10000]] : []),
                     ...(chartType === "large-scale-area" ? [["Point count", "areaPoints", 100, 20000], ["Volatility", "areaVolatility", 1, 100]] : []),
                   ] as [string, keyof GeneratorSettings, number, number][]).map(([label, field, min, max]) => (
                     <label key={field} style={{ display: "grid", gridTemplateColumns: "1fr 100px", alignItems: "center", gap: 10 }}>
@@ -4382,13 +4533,19 @@ export default function App() {
                   ))}
                   <div style={{ padding: "8px 10px", borderRadius: 7, background: isDark ? "#171725" : "#F8FAFC", color: subText, fontSize: 10.5 }}>
                     {chartType === "heat-large" && `${(Math.round(specialData.generator.heatWidth) + 1) * (Math.round(specialData.generator.heatHeight) + 1)} cells`}
-                    {chartType === "lines-ny" && `~${Math.round(2 * (Math.round(specialData.generator.lineGrid) + 1) * Math.round(specialData.generator.lineGrid) * 0.36)} street segments`}
+                    {chartType === "lines-ny" && (
+                      koreaRoadData
+                        ? `${koreaRoadData.totalLines.toLocaleString()} road polylines · ${koreaRoadData.totalPoints.toLocaleString()} points`
+                        : "대한민국 도로 데이터 준비 중"
+                    )}
                     {chartType === "large-scale-area" && `${Math.round(specialData.generator.areaPoints)} time-series points`}
                   </div>
-                  <div style={{ fontSize: 10.5, lineHeight: 1.45, color: subText }}>같은 Seed는 화면·PNG·SVG에서 같은 데이터를 생성합니다.</div>
+                  {chartType !== "lines-ny" && (
+                    <div style={{ fontSize: 10.5, lineHeight: 1.45, color: subText }}>같은 Seed는 화면·PNG·SVG에서 같은 데이터를 생성합니다.</div>
+                  )}
                   {chartType === "lines-ny" && (
                     <div style={{ fontSize: 10.5, lineHeight: 1.45, color: subText }}>
-                      공식 예제의 대용량 `lines` 렌더링 방식을 유지하되, 외부 32개 바이너리 파일 대신 로컬에서 맨해튼형 도로망을 생성합니다.
+                      OpenStreetMap 도로를 주요·간선·지방·도시 도로로 나눠 표시합니다. © OpenStreetMap contributors · ODbL 1.0
                     </div>
                   )}
                 </div>
@@ -4677,7 +4834,20 @@ export default function App() {
 
         {/* Preview */}
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", padding: 40, background: canvasBg }}>
-          {MAP_CHART_IDS.has(chartType) && mapStatus !== "ready" ? (
+          {chartType === "lines-ny" && koreaRoadStatus !== "ready" ? (
+            koreaRoadStatus === "error" ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, color: subText, fontFamily: "Inter", fontSize: 13 }}>
+                <span>대한민국 도로 데이터를 불러오지 못했어요.</span>
+                <button onClick={() => setKoreaRoadRetryToken(token => token + 1)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>
+                  <RefreshCw size={13} /> 다시 시도
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, color: subText, fontFamily: "Inter", fontSize: 13 }}>
+                <RefreshCw size={15} className="animate-spin" /> 대한민국 도로 불러오는 중...
+              </div>
+            )
+          ) : MAP_CHART_IDS.has(chartType) && mapStatus !== "ready" ? (
             mapStatus === "error" ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, color: subText, fontFamily: "Inter", fontSize: 13 }}>
                 <span>지도 데이터를 불러오지 못했어요.</span>
