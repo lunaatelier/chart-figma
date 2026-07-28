@@ -4074,8 +4074,38 @@ export default function App() {
   const EXPORT_PAD = 40;
   const exportBg = theme === "dark" ? "#1E1E2E" : "#ffffff";
 
+  // Korea Streets renders its geo border + 4 road-class layers on separate zlevels for
+  // large-mode performance (5 stacked <canvas> elements in the chart container). ECharts'
+  // own getDataURL() takes a different, buggy code path whenever the requested pixelRatio
+  // exceeds the browser's actual devicePixelRatio (zrender's CanvasPainter.getRenderedCanvas
+  // falls back to manually re-brushing the display list instead of compositing the existing
+  // layers) — for these multi-zlevel/incremental-large series that silently drops almost all
+  // of the road data (only the geo border survived in testing). Composite the chart's own
+  // already-correct live canvases directly instead, sidestepping getDataURL() entirely.
+  const getKoreaStreetsPngDataUrl = (): string | null => {
+    const inst = echartsExportRef.current;
+    if (!inst) return null;
+    const container = inst.getDom();
+    if (!container) return null;
+    const canvases = Array.from(container.querySelectorAll("canvas"));
+    if (!canvases.length) return null;
+    const srcW = canvases[0].width, srcH = canvases[0].height;
+    const targetScale = 2;
+    const w = chartSize.w * targetScale, h = chartSize.h * targetScale;
+    const pad = EXPORT_PAD * targetScale;
+    const off = document.createElement("canvas");
+    off.width = w + pad * 2;
+    off.height = h + pad * 2;
+    const ctx = off.getContext("2d")!;
+    ctx.fillStyle = exportBg;
+    ctx.fillRect(0, 0, off.width, off.height);
+    for (const c of canvases) ctx.drawImage(c, 0, 0, srcW, srcH, pad, pad, w, h);
+    return off.toDataURL("image/png");
+  };
+
   const getPngDataUrl = (): Promise<string | null> => {
     if (!echartsExportRef.current) return Promise.resolve(null);
+    if (chartType === "lines-ny") return Promise.resolve(getKoreaStreetsPngDataUrl());
     const chartUrl = echartsExportRef.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: exportBg });
     return new Promise(resolve => {
       const img = new Image();
@@ -4095,11 +4125,28 @@ export default function App() {
     });
   };
 
-  const getSvgString = (): { svg: string; truncated: boolean; originalCount: number } | null => {
+  const getSvgString = async (): Promise<{ svg: string; truncated: boolean; originalCount: number; rasterized: boolean } | null> => {
     if (
       (MAP_CHART_IDS.has(chartType) && mapStatus !== "ready") ||
       (chartType === "lines-ny" && koreaRoadStatus !== "ready")
     ) return null;
+    if (chartType === "lines-ny") {
+      // This chart's look comes from canvas-only compositing (hundreds of thousands of
+      // overlapping hairline road segments drawn with blendMode:'lighter') — the SVG
+      // renderer drops blend modes entirely, and downsampling to a vector-friendly point
+      // count left isolated near-invisible strokes (looked like scattered dots, with only
+      // the geo border path staying visible) once pasted into Figma. Embed the already-
+      // correct canvas render as a raster image inside the SVG instead of re-drawing it as
+      // vector paths.
+      const pngUrl = await getPngDataUrl();
+      if (!pngUrl) return null;
+      const pw = chartSize.w + EXPORT_PAD * 2;
+      const ph = chartSize.h + EXPORT_PAD * 2;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}">
+  <image x="0" y="0" width="${pw}" height="${ph}" href="${pngUrl}"/>
+</svg>`;
+      return { svg, truncated: false, originalCount: 0, rasterized: true };
+    }
     // Reuse the same option object already on screen (echartsOption) instead of calling
     // buildEChartsOption() again — for static-demo charts that build fresh random data,
     // a second call used to produce a different dataset than what's actually rendered.
@@ -4116,7 +4163,7 @@ export default function App() {
   <rect width="${pw}" height="${ph}" fill="${exportBg}"/>
   <g transform="translate(${EXPORT_PAD},${EXPORT_PAD})">${inner}</g>
 </svg>`;
-    return { svg: wrapped, truncated, originalCount };
+    return { svg: wrapped, truncated, originalCount, rasterized: false };
   };
 
   const downloadPng = async () => {
@@ -4139,17 +4186,19 @@ export default function App() {
     }
   };
 
-  const downloadSvg = () => {
-    const result = getSvgString(); if (!result) return;
+  const downloadSvg = async () => {
+    const result = await getSvgString(); if (!result) return;
     const a = document.createElement("a"); a.download = "chart.svg"; a.href = URL.createObjectURL(new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" })); a.click();
     setOpenMenu(null);
     if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
+    else if (result.rasterized) flashSvgNotice(`대용량 도로망이라 SVG에 이미지로 포함했어요 (Figma에 그대로 붙여넣기 가능)`);
   };
 
   const copySvg = async () => {
-    const result = getSvgString(); if (!result) return;
+    const result = await getSvgString(); if (!result) return;
     setOpenMenu(null);
     if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
+    else if (result.rasterized) flashSvgNotice(`대용량 도로망이라 SVG에 이미지로 포함했어요 (Figma에 그대로 붙여넣기 가능)`);
     try {
       await navigator.clipboard.writeText(result.svg);
       flashCopied("svg");
