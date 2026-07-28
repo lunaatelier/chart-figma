@@ -581,16 +581,25 @@ function createDefaultCalendarHeatmap(): DateValuePoint[] {
 }
 
 function createDefaultHierarchy(): HierarchyRow[] {
+  // Shaped like the official "Sunburst Label Rotate" sample data (4 top branches,
+  // each split into just 1-2 children) rather than a wide, finely-split org chart —
+  // fewer/bigger slices keep ring labels legible instead of overlapping.
   return [
-    { id: "root", name: "Health & Human Services", parentId: "", value: 1100 },
-    { id: "cms", name: "Centers for Medicare and Medicaid Services", parentId: "root", value: 720 },
-    { id: "nih", name: "National Institutes of Health", parentId: "root", value: 120 },
-    { id: "acf", name: "Administration for Children and Families", parentId: "root", value: 88 },
-    { id: "cdc", name: "Centers for Disease Control and Prevention", parentId: "root", value: 62 },
-    { id: "fda", name: "Food and Drug Administration", parentId: "root", value: 42 },
-    { id: "hrsa", name: "Health Resources and Services Administration", parentId: "root", value: 30 },
-    { id: "sam", name: "Substance Abuse and Mental Health Services", parentId: "root", value: 18 },
-    { id: "other", name: "Other Programs", parentId: "root", value: 20 },
+    { id: "root", name: "Health & Human Services", parentId: "", value: 1260 },
+    { id: "cms", name: "Centers for Medicare & Medicaid Services", parentId: "root", value: 720 },
+    { id: "nih", name: "National Institutes of Health", parentId: "root", value: 220 },
+    { id: "cdc", name: "Centers for Disease Control and Prevention", parentId: "root", value: 180 },
+    { id: "acf", name: "Administration for Children and Families", parentId: "root", value: 140 },
+    { id: "cms-medicare", name: "Medicare", parentId: "cms", value: 430 },
+    { id: "cms-medicaid", name: "Medicaid", parentId: "cms", value: 290 },
+    { id: "medicare-parta", name: "Part A (Hospital)", parentId: "cms-medicare", value: 250 },
+    { id: "medicare-partb", name: "Part B (Medical)", parentId: "cms-medicare", value: 180 },
+    { id: "nih-research", name: "Extramural Research", parentId: "nih", value: 220 },
+    { id: "nih-cancer", name: "National Cancer Institute", parentId: "nih-research", value: 220 },
+    { id: "cdc-programs", name: "Public Health Programs", parentId: "cdc", value: 180 },
+    { id: "cdc-infectious", name: "Infectious Disease Control", parentId: "cdc-programs", value: 180 },
+    { id: "acf-programs", name: "Family Services", parentId: "acf", value: 140 },
+    { id: "acf-headstart", name: "Head Start", parentId: "acf-programs", value: 140 },
   ];
 }
 
@@ -2654,16 +2663,26 @@ function buildEChartsOption(
     }
 
     case "treemap-sunburst": {
-      const sunData = hierarchyRowsToTree(specialData.hierarchy);
-      const colorHierarchy = (node: any, index: number): any => ({
-        ...node,
-        itemStyle: { color: palette[index % palette.length] },
-        ...(node.children ? { children: node.children.map((child: any, childIndex: number) => colorHierarchy(child, index + childIndex + 1)) } : {}),
-      });
-      const coloredData = sunData.map((node, index) => colorHierarchy(node, index));
+      // Follows the official "Sunburst Label Rotate" example: each ring gets its own
+      // color + label.rotate via `levels` (radial → tangential → 0) instead of coloring
+      // individual nodes, since that per-ring rotation is what keeps outer labels readable.
+      // https://echarts.apache.org/examples/en/editor.html?c=sunburst-label-rotate
+      const sunRoots = hierarchyRowsToTree(specialData.hierarchy);
+      const sunData = sunRoots.length === 1 && sunRoots[0].children?.length ? sunRoots[0].children : sunRoots;
       return {
         backgroundColor: bg, color: palette, title: titleCfg, tooltip: { formatter: (p: any) => `${p.name}: ${p.value}` },
-        series: [{ type: "sunburst", data: coloredData, radius: ["15%", "70%"], center: ["50%", "55%"], label: { color: "#fff", fontFamily: "Inter", fontSize: 11 }, itemStyle: { borderColor: bg, borderWidth: 2 }, levels: [{ r0: "15%", r: "30%" }, { r0: "32%", r: "68%", label: { rotate: "tangential" } }] }],
+        series: [{
+          type: "sunburst", data: sunData, radius: ["15%", "80%"], center: ["50%", "55%"],
+          sort: undefined, emphasis: { focus: "ancestor" },
+          label: { color: "#fff", fontFamily: "Inter", fontSize: 11, textBorderColor: "rgba(0,0,0,0.35)", textBorderWidth: 2, minAngle: 9 },
+          itemStyle: { borderColor: bg, borderWidth: 2 },
+          levels: [
+            {},
+            { r0: "15%", r: "34%", itemStyle: { color: palette[0] }, label: { rotate: "radial" } },
+            { r0: "36%", r: "58%", itemStyle: { color: palette[1] }, label: { rotate: "tangential" } },
+            { r0: "60%", r: "80%", itemStyle: { color: palette[2] }, label: { rotate: 0 } },
+          ],
+        }],
         legend: { show: false },
       };
     }
