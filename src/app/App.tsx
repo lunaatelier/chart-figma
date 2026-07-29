@@ -4189,27 +4189,21 @@ export default function App() {
     });
   };
 
-  const getSvgString = async (): Promise<{ svg: string; truncated: boolean; originalCount: number; rasterized: boolean } | null> => {
+  const getSvgString = async (): Promise<{ svg: string; truncated: boolean; originalCount: number } | null> => {
     if (
       (MAP_CHART_IDS.has(chartType) && mapStatus !== "ready") ||
       (chartType === "lines-ny" && koreaRoadStatus !== "ready")
     ) return null;
     if (chartType === "lines-ny") {
-      // This chart's look comes from canvas-only compositing (hundreds of thousands of
-      // overlapping hairline road segments drawn with blendMode:'lighter') — the SVG
-      // renderer drops blend modes entirely, and downsampling to a vector-friendly point
-      // count left isolated near-invisible strokes (looked like scattered dots, with only
-      // the geo border path staying visible) once pasted into Figma. Embed the already-
-      // correct canvas render as a raster image inside the SVG instead of re-drawing it as
-      // vector paths.
-      const pngUrl = await getPngDataUrl();
-      if (!pngUrl) return null;
-      const pw = chartSize.w + EXPORT_PAD * 2;
-      const ph = chartSize.h + EXPORT_PAD * 2;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}">
-  <image x="0" y="0" width="${pw}" height="${ph}" href="${pngUrl}"/>
-</svg>`;
-      return { svg, truncated: false, originalCount: 0, rasterized: true };
+      // This chart's on-screen look (400k+ hairline roads composited with
+      // blendMode:'lighter') can't become vector paths — SVG ignores blend modes, and that
+      // many <path> elements would be unusable in Figma. The PNG button already covers the
+      // full-detail raster case, so the SVG export always returns the true-vector,
+      // major/arterial-only alternative (buildKoreaVectorSvg) rather than offering a
+      // second raster-embedded option here.
+      if (!koreaRoadData) return null;
+      const svg = buildKoreaVectorSvg(koreaRoadData, chartTitle, chartSize, EXPORT_PAD);
+      return { svg, truncated: true, originalCount: koreaRoadData.totalLines };
     }
     // Reuse the same option object already on screen (echartsOption) instead of calling
     // buildEChartsOption() again — for static-demo charts that build fresh random data,
@@ -4227,7 +4221,7 @@ export default function App() {
   <rect width="${pw}" height="${ph}" fill="${exportBg}"/>
   <g transform="translate(${EXPORT_PAD},${EXPORT_PAD})">${inner}</g>
 </svg>`;
-    return { svg: wrapped, truncated, originalCount, rasterized: false };
+    return { svg: wrapped, truncated, originalCount };
   };
 
   const downloadPng = async () => {
@@ -4254,45 +4248,21 @@ export default function App() {
     const result = await getSvgString(); if (!result) return;
     const a = document.createElement("a"); a.download = "chart.svg"; a.href = URL.createObjectURL(new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" })); a.click();
     setOpenMenu(null);
-    if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
-    else if (result.rasterized) flashSvgNotice(`대용량 도로망이라 SVG에 이미지로 포함했어요 (Figma에 그대로 붙여넣기 가능)`);
+    if (chartType === "lines-ny") flashSvgNotice("주요·간선도로만 벡터로 반영했어요 (화면과 도로 형태가 달라요, 전체 도로망은 PNG로)");
+    else if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
   };
 
   const copySvg = async () => {
     const result = await getSvgString(); if (!result) return;
     setOpenMenu(null);
-    if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
-    else if (result.rasterized) flashSvgNotice(`대용량 도로망이라 SVG에 이미지로 포함했어요 (Figma에 그대로 붙여넣기 가능)`);
+    if (chartType === "lines-ny") flashSvgNotice("주요·간선도로만 벡터로 반영했어요 (화면과 도로 형태가 달라요, 전체 도로망은 PNG로)");
+    else if (result.truncated) flashSvgNotice(`대용량 차트라 SVG는 ${SVG_POINT_LIMIT.toLocaleString()}개로 축약했어요 (원본 ${result.originalCount.toLocaleString()}개, PNG는 전체 유지)`);
     try {
       await navigator.clipboard.writeText(result.svg);
       flashCopied("svg");
     } catch {
       // Clipboard blocked — show in-app modal so user can copy the text
       setPreviewModal({ type: "svg", content: result.svg });
-    }
-  };
-
-  // Korea Streets only: a true-vector alternative to the raster-embedded SVG above (see
-  // getSvgString/buildKoreaVectorSvg comments) — solid major/arterial roads only, so it
-  // looks different from the on-screen glow effect but pastes into Figma as real paths.
-  const downloadSvgVector = () => {
-    if (!koreaRoadData) return;
-    const svg = buildKoreaVectorSvg(koreaRoadData, chartTitle, chartSize, EXPORT_PAD);
-    const a = document.createElement("a"); a.download = "chart-vector.svg"; a.href = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" })); a.click();
-    setOpenMenu(null);
-    flashSvgNotice("주요/간선도로만 벡터로 내보냈어요 (실제 화면과 스타일·범위가 다름)");
-  };
-
-  const copySvgVector = async () => {
-    if (!koreaRoadData) return;
-    const svg = buildKoreaVectorSvg(koreaRoadData, chartTitle, chartSize, EXPORT_PAD);
-    setOpenMenu(null);
-    flashSvgNotice("주요/간선도로만 벡터로 내보냈어요 (실제 화면과 스타일·범위가 다름)");
-    try {
-      await navigator.clipboard.writeText(svg);
-      flashCopied("svg");
-    } catch {
-      setPreviewModal({ type: "svg", content: svg });
     }
   };
 
@@ -4363,32 +4333,15 @@ export default function App() {
               <Download size={12} />SVG<ChevronDown size={10} />
             </button>
             {openMenu === "svg" && (
-              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
-                {chartType === "lines-ny" && (
-                  <div style={{ padding: "8px 14px 2px", fontSize: 10, fontWeight: 600, color: subText, fontFamily: "Inter", textTransform: "uppercase", letterSpacing: 0.3 }}>이미지 포함 (도로망 전체)</div>
-                )}
+              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
                 <button onClick={downloadSvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
                   <Download size={13} />다운로드 (.svg)
                 </button>
                 <div style={{ height: 1, background: panelBorder }} />
                 <button onClick={copySvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2"/></svg>
-                  {chartType === "lines-ny" ? "SVG 코드 복사 (이미지)" : "SVG 코드 복사 (벡터)"}
+                  SVG 코드 복사 (벡터)
                 </button>
-                {chartType === "lines-ny" && koreaRoadData && (
-                  <>
-                    <div style={{ height: 1, background: panelBorder }} />
-                    <div style={{ padding: "8px 14px 2px", fontSize: 10, fontWeight: 600, color: subText, fontFamily: "Inter", textTransform: "uppercase", letterSpacing: 0.3 }}>벡터 (주요/간선도로만, 일부 축약)</div>
-                    <button onClick={downloadSvgVector} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
-                      <Download size={13} />다운로드 (.svg)
-                    </button>
-                    <div style={{ height: 1, background: panelBorder }} />
-                    <button onClick={copySvgVector} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2"/></svg>
-                      SVG 코드 복사 (벡터)
-                    </button>
-                  </>
-                )}
               </div>
             )}
           </div>
@@ -5014,6 +4967,14 @@ export default function App() {
                 <RefreshCw size={15} className="animate-spin" /> 지도 불러오는 중...
               </div>
             )
+          ) : chartType === "lines-ny" ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <EChartsView option={echartsOption} size={chartSize} theme={theme} exportRef={echartsExportRef} />
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, fontSize: 11, color: subText, fontFamily: "Inter", textAlign: "center" }}>
+                <span>이 차트는 라이트/다크 설정과 무관하게 항상 다크 배경으로 고정돼요.</span>
+                <span>SVG는 주요·간선도로만 벡터로 담겨요 (전체 도로망은 PNG로 내려받아 주세요).</span>
+              </div>
+            </div>
           ) : (
             <EChartsView option={echartsOption} size={chartSize} theme={theme} exportRef={echartsExportRef} />
           )}
