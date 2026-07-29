@@ -3128,6 +3128,11 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
 // pixels), so a chart with 10k+ points produces a huge/laggy SVG. Downsample large series
 // for the SVG path only — PNG keeps the full dataset since it costs nothing extra there.
 const SVG_POINT_LIMIT = 3000;
+// Heatmap cells become one flat <rect> each (no path geometry, unlike lines/scatter), so
+// they stay cheap at much higher counts. Using the generic SVG_POINT_LIMIT here dropped
+// heat-large (up to 201x201 = 40,401 cells) down to a coarse ~55x55 grid, visibly blockier
+// than the on-screen canvas render. Cap high enough to cover its max resolution untouched.
+const SVG_HEATMAP_POINT_LIMIT = 42000;
 function inspectPackedPolylines(data: ArrayLike<number>, limit: number): { lineCount: number; sampled: { coords: [number, number][] }[] } {
   let offset = 0;
   let lineCount = 0;
@@ -3184,7 +3189,8 @@ function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.ECha
         };
       }
     }
-    if (Array.isArray(s.data) && s.data.length > SVG_POINT_LIMIT) {
+    const pointLimit = s.type === "heatmap" ? SVG_HEATMAP_POINT_LIMIT : SVG_POINT_LIMIT;
+    if (Array.isArray(s.data) && s.data.length > pointLimit) {
       truncated = true;
       originalCount = Math.max(originalCount, s.data.length);
 
@@ -3201,7 +3207,7 @@ function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.ECha
       ) {
         const xData = (option.xAxis as any).data as unknown[];
         const yData = (option.yAxis as any).data as unknown[];
-        const axisStep = Math.max(1, Math.ceil(Math.sqrt(s.data.length / SVG_POINT_LIMIT)));
+        const axisStep = Math.max(1, Math.ceil(Math.sqrt(s.data.length / pointLimit)));
         const sampledX = xData.filter((_: unknown, i: number) => i % axisStep === 0);
         const sampledY = yData.filter((_: unknown, i: number) => i % axisStep === 0);
         const xIndex = new Map(sampledX.map((value, i) => [String(value), i]));
@@ -3229,7 +3235,7 @@ function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.ECha
         };
       }
 
-      const step = Math.ceil(s.data.length / SVG_POINT_LIMIT);
+      const step = Math.ceil(s.data.length / pointLimit);
       return {
         ...s,
         data: s.data.filter((_: unknown, i: number) => i % step === 0),
