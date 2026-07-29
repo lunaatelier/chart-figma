@@ -3247,6 +3247,70 @@ function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.ECha
   };
 }
 
+// Real-vector alternative for Korea Streets: the on-screen look (400k+ hairline road
+// segments composited with blendMode:'lighter') can't become vector paths — SVG ignores
+// blend modes, and that many <path> elements would be unusable pasted into Figma. This
+// renders a deliberately different, solid-stroke road map limited to major/arterial roads
+// only, downsampled to a budget an SVG document (and Figma) can actually hold.
+const KOREA_VECTOR_GROUPS: { id: KoreaRoadGroupId; limit: number; width: number; opacity: number; z: number }[] = [
+  { id: "arterial", limit: 3000, width: 0.5, opacity: 0.55, z: 1 },
+  { id: "major", limit: 6000, width: 0.9, opacity: 0.9, z: 2 },
+];
+
+function buildKoreaVectorSvg(koreaRoadData: KoreaRoadData, chartTitle: string, size: { w: number; h: number }, pad: number): string {
+  const isSmall = size.w <= 400;
+  const streetColor = "#f5a000";
+  const series = KOREA_VECTOR_GROUPS.map(g => {
+    const group = koreaRoadData.groups[g.id];
+    if (!group) return null;
+    const { sampled } = inspectPackedPolylines(group.data, g.limit);
+    return {
+      name: g.id,
+      type: "lines",
+      coordinateSystem: "geo",
+      polyline: true,
+      silent: true,
+      animation: false,
+      z: g.z,
+      lineStyle: { color: streetColor, width: g.width, opacity: g.opacity },
+      data: sampled,
+    };
+  }).filter(s => s !== null) as any[];
+
+  const option: echarts.EChartsOption = {
+    backgroundColor: "#111",
+    title: chartTitle
+      ? { text: chartTitle, left: "center", top: 6, textStyle: { color: "#fff", fontSize: isSmall ? 12 : 20, fontFamily: "Inter", fontWeight: "bold" } }
+      : undefined,
+    geo: {
+      map: "KOR",
+      roam: false,
+      silent: true,
+      layoutCenter: ["50%", chartTitle ? "53%" : "50%"],
+      layoutSize: chartTitle ? "87%" : "94%",
+      itemStyle: { areaColor: "transparent", borderColor: "rgba(245,160,0,0.24)", borderWidth: 0.7 },
+      emphasis: { disabled: true },
+    } as any,
+    graphic: [{
+      type: "text", right: 8, bottom: 6, silent: true,
+      style: { text: koreaRoadData.attribution, fill: "rgba(255,255,255,0.52)", font: `${isSmall ? 8 : 10}px Inter` },
+    }],
+    series,
+  };
+
+  const inst = echarts.init(document.createElement("div"), undefined, { renderer: "svg", width: size.w, height: size.h });
+  inst.setOption(option, { notMerge: true, silent: true });
+  const inner = inst.renderToSVGString();
+  inst.dispose();
+
+  const pw = size.w + pad * 2;
+  const ph = size.h + pad * 2;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${pw} ${ph}">
+  <rect width="${pw}" height="${ph}" fill="#111"/>
+  <g transform="translate(${pad},${pad})">${inner}</g>
+</svg>`;
+}
+
 // ─── ECharts Mount Hook ───────────────────────────────────────────────────────
 function EChartsView({ option, size, theme, exportRef }: {
   option: echarts.EChartsOption; size: { w: number; h: number };
@@ -4208,6 +4272,30 @@ export default function App() {
     }
   };
 
+  // Korea Streets only: a true-vector alternative to the raster-embedded SVG above (see
+  // getSvgString/buildKoreaVectorSvg comments) — solid major/arterial roads only, so it
+  // looks different from the on-screen glow effect but pastes into Figma as real paths.
+  const downloadSvgVector = () => {
+    if (!koreaRoadData) return;
+    const svg = buildKoreaVectorSvg(koreaRoadData, chartTitle, chartSize, EXPORT_PAD);
+    const a = document.createElement("a"); a.download = "chart-vector.svg"; a.href = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" })); a.click();
+    setOpenMenu(null);
+    flashSvgNotice("주요/간선도로만 벡터로 내보냈어요 (실제 화면과 스타일·범위가 다름)");
+  };
+
+  const copySvgVector = async () => {
+    if (!koreaRoadData) return;
+    const svg = buildKoreaVectorSvg(koreaRoadData, chartTitle, chartSize, EXPORT_PAD);
+    setOpenMenu(null);
+    flashSvgNotice("주요/간선도로만 벡터로 내보냈어요 (실제 화면과 스타일·범위가 다름)");
+    try {
+      await navigator.clipboard.writeText(svg);
+      flashCopied("svg");
+    } catch {
+      setPreviewModal({ type: "svg", content: svg });
+    }
+  };
+
   const isDark = theme === "dark";
   const panelBg = isDark ? "#16162A" : "#FFFFFF";
   const panelBorder = isDark ? "#2D2D4E" : "#E5E7EB";
@@ -4275,15 +4363,32 @@ export default function App() {
               <Download size={12} />SVG<ChevronDown size={10} />
             </button>
             {openMenu === "svg" && (
-              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
+              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
+                {chartType === "lines-ny" && (
+                  <div style={{ padding: "8px 14px 2px", fontSize: 10, fontWeight: 600, color: subText, fontFamily: "Inter", textTransform: "uppercase", letterSpacing: 0.3 }}>이미지 포함 (도로망 전체)</div>
+                )}
                 <button onClick={downloadSvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
                   <Download size={13} />다운로드 (.svg)
                 </button>
                 <div style={{ height: 1, background: panelBorder }} />
                 <button onClick={copySvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2"/></svg>
-                  SVG 코드 복사 (벡터)
+                  {chartType === "lines-ny" ? "SVG 코드 복사 (이미지)" : "SVG 코드 복사 (벡터)"}
                 </button>
+                {chartType === "lines-ny" && koreaRoadData && (
+                  <>
+                    <div style={{ height: 1, background: panelBorder }} />
+                    <div style={{ padding: "8px 14px 2px", fontSize: 10, fontWeight: 600, color: subText, fontFamily: "Inter", textTransform: "uppercase", letterSpacing: 0.3 }}>벡터 (주요/간선도로만, 일부 축약)</div>
+                    <button onClick={downloadSvgVector} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
+                      <Download size={13} />다운로드 (.svg)
+                    </button>
+                    <div style={{ height: 1, background: panelBorder }} />
+                    <button onClick={copySvgVector} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2"/></svg>
+                      SVG 코드 복사 (벡터)
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
