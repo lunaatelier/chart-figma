@@ -396,7 +396,7 @@ export const ECHARTS_CATALOGUE = [
     cat: "Heatmap", items: [
       { id: "heat-cartesian", label: "Cartesian" },
       { id: "heat-calendar", label: "Calendar" },
-      { id: "heat-large", label: "Large Data (10K)" },
+      { id: "heat-large", label: "Heatmap Large" },
     ],
   },
   {
@@ -522,7 +522,7 @@ const CHART_POLICY_OVERRIDES: Partial<Record<string, Partial<ChartPolicy>>> = {
   "candle-large": { dataEditor: "ohlc", colorPolicy: "semantic" },
   "heat-cartesian": { dataEditor: "matrix", colorPolicy: "gradient" },
   "heat-calendar": { dataEditor: "calendar", colorPolicy: "gradient" },
-  "heat-large": { dataEditor: "generator", colorPolicy: "gradient" },
+  "heat-large": { dataEditor: "generator", colorPolicy: "official-fixed" },
   "large-scale-area": { dataEditor: "generator", colorPolicy: "series" },
   "lines-ny": { dataEditor: "generator", colorPolicy: "official-fixed" },
   "matrix-covariance": { dataEditor: "matrix", colorPolicy: "gradient" },
@@ -814,7 +814,7 @@ function createDefaultSpecialChartData(): SpecialChartData {
     geoRoute: createDefaultGeoRoute(),
     generator: {
       seed: 42,
-      heatWidth: 100,
+      heatWidth: 200,
       heatHeight: 100,
       areaPoints: 1500,
       areaVolatility: 12,
@@ -2279,8 +2279,15 @@ function buildEChartsOption(
           hlData.push([i, j, +Math.max(0, Math.min(1, (v + 1.4) / 2.8)).toFixed(2)]);
         }
       }
+      // Official example's fixed 11-stop diverging spectral scale (echarts-examples
+      // heatmap-large.ts) — kept as literal hex values regardless of the user's primary
+      // color, matching the "official-fixed" color policy used elsewhere (e.g. lines-ny).
+      const HEAT_LARGE_OFFICIAL_COLORS = [
+        "#313695", "#4575b4", "#74add1", "#abd9e9", "#e0f3f8", "#ffffbf",
+        "#fee090", "#fdae61", "#f46d43", "#d73027", "#a50026",
+      ];
       return {
-        backgroundColor: bg, title: titleCfg || { text: "Heatmap — 10K Cells", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        backgroundColor: bg, title: titleCfg || { text: "Heatmap Large", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
         tooltip: {},
         grid: { ...gridFull, bottom: 40 },
         xAxis: { type: "category", data: Array.from({ length: W + 1 }, (_, i) => i), show: false },
@@ -2288,15 +2295,7 @@ function buildEChartsOption(
         visualMap: {
           min: 0, max: 1, calculable: true, realtime: false, orient: "horizontal", left: "center", bottom: 4,
           textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
-          inRange: {
-            color: [
-              palette[2 % palette.length],
-              palette[0],
-              theme === "dark" ? "#26263f" : "#f8fafc",
-              palette[1 % palette.length],
-              palette[3 % palette.length],
-            ],
-          },
+          inRange: { color: HEAT_LARGE_OFFICIAL_COLORS },
         },
         series: [{ name: "Field", type: "heatmap", data: hlData, progressive: 1000, animation: false }],
         legend: { show: false },
@@ -3247,6 +3246,36 @@ function downsampleForSvg(option: echarts.EChartsOption): { option: echarts.ECha
   };
 }
 
+// OSM ways are naturally split into many short segments (average ~3 points per line in
+// this dataset) — picking every Nth line by index (inspectPackedPolylines' stride) drops
+// whole segments at random and leaves scattered, disconnected dashes rather than readable
+// roads. Ranking by arc length and keeping the longest lines instead favors uninterrupted
+// stretches of road, which read as continuous strokes.
+function selectLongestPackedPolylines(data: ArrayLike<number>, limit: number): { coords: [number, number][] }[] {
+  const entries: { offset: number; count: number; length: number }[] = [];
+  let offset = 0;
+  while (offset < data.length) {
+    const count = Number(data[offset]);
+    if (!Number.isFinite(count) || count < 2 || offset + 1 + count * 2 > data.length) break;
+    let length = 0;
+    for (let i = 1; i < count; i++) {
+      const x0 = Number(data[offset + 1 + (i - 1) * 2]), y0 = Number(data[offset + 1 + (i - 1) * 2 + 1]);
+      const x1 = Number(data[offset + 1 + i * 2]), y1 = Number(data[offset + 1 + i * 2 + 1]);
+      length += Math.hypot(x1 - x0, y1 - y0);
+    }
+    entries.push({ offset, count, length });
+    offset += 1 + count * 2;
+  }
+  entries.sort((a, b) => b.length - a.length);
+  return entries.slice(0, limit).map(({ offset: entryOffset, count }) => {
+    const coords: [number, number][] = [];
+    for (let i = 0; i < count; i++) {
+      coords.push([Number(data[entryOffset + 1 + i * 2]), Number(data[entryOffset + 1 + i * 2 + 1])]);
+    }
+    return { coords };
+  });
+}
+
 // Real-vector alternative for Korea Streets: the on-screen look (400k+ hairline road
 // segments composited with blendMode:'lighter') can't become vector paths — SVG ignores
 // blend modes, and that many <path> elements would be unusable pasted into Figma. This
@@ -3263,7 +3292,7 @@ function buildKoreaVectorSvg(koreaRoadData: KoreaRoadData, chartTitle: string, s
   const series = KOREA_VECTOR_GROUPS.map(g => {
     const group = koreaRoadData.groups[g.id];
     if (!group) return null;
-    const { sampled } = inspectPackedPolylines(group.data, g.limit);
+    const sampled = selectLongestPackedPolylines(group.data, g.limit);
     return {
       name: g.id,
       type: "lines",
@@ -4316,7 +4345,7 @@ export default function App() {
             {openMenu === "png" && (
               <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 148, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
                 <button onClick={downloadPng} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
-                  <Download size={13} />다운로드 (.png)
+                  <Download size={13} />다운로드
                 </button>
                 <div style={{ height: 1, background: panelBorder }} />
                 <button onClick={copyPng} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
@@ -4333,14 +4362,14 @@ export default function App() {
               <Download size={12} />SVG<ChevronDown size={10} />
             </button>
             {openMenu === "svg" && (
-              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
+              <div onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: panelBg, border: `1px solid ${panelBorder}`, borderRadius: 8, overflow: "hidden", zIndex: 50, minWidth: 148, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
                 <button onClick={downloadSvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
-                  <Download size={13} />다운로드 (.svg)
+                  <Download size={13} />다운로드
                 </button>
                 <div style={{ height: 1, background: panelBorder }} />
                 <button onClick={copySvg} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: sectionText, fontFamily: "Inter", textAlign: "left" }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2"/></svg>
-                  SVG 코드 복사 (벡터)
+                  SVG 코드 복사
                 </button>
               </div>
             )}
