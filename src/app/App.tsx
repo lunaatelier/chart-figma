@@ -377,6 +377,7 @@ export const ECHARTS_CATALOGUE = [
       { id: "scatter-distribution", label: "Distribution" },
       { id: "scatter-single", label: "Single Axis" },
       { id: "scatter-jitter", label: "Jittering" },
+      { id: "scatter-effect", label: "Effect Scatter" },
     ],
   },
   {
@@ -396,6 +397,7 @@ export const ECHARTS_CATALOGUE = [
     cat: "Heatmap", items: [
       { id: "heat-cartesian", label: "Cartesian" },
       { id: "heat-calendar", label: "Calendar" },
+      { id: "heat-calendar-legend", label: "Calendar (Legend)" },
       { id: "heat-large", label: "Heatmap Large" },
     ],
   },
@@ -424,7 +426,6 @@ export const ECHARTS_CATALOGUE = [
       { id: "treemap-basic", label: "Treemap" },
       { id: "treemap-sunburst", label: "Sunburst" },
       { id: "sankey-basic", label: "Sankey" },
-      { id: "sankey-gradient", label: "Sankey Gradient" },
       { id: "funnel-basic", label: "Funnel" },
       { id: "graph-les-mis", label: "Force Graph" },
       { id: "graph-hide-overlap", label: "Hide Overlapped Label" },
@@ -435,6 +436,7 @@ export const ECHARTS_CATALOGUE = [
     cat: "Special", items: [
       { id: "pictorial-bar", label: "Pictorial Bar" },
       { id: "share-dataset", label: "Share Dataset" },
+      { id: "mix-timeline-finance", label: "Timeline Finance" },
       { id: "lines-ny", label: "Korea Streets" },
     ],
   },
@@ -448,22 +450,22 @@ const SEEDED_DEMO_CHARTS = new Set([
   "bar-waterfall", "bar-race", "bar-world-pop", "bar-animation",
   "pie-referer", "pie-browser-proportion", "pie-scrollable",
   "candle-basic", "candle-large",
-  "heat-cartesian", "heat-calendar",
+  "heat-cartesian", "heat-calendar", "heat-calendar-legend",
   "radar-browsers",
-  "tree-lr", "treemap-sunburst", "sankey-basic", "sankey-gradient",
+  "tree-lr", "treemap-sunburst", "sankey-basic",
   "scatter-distribution", "scatter-single", "scatter-jitter",
   "large-scale-area", "area-rainfall", "line-race",
   "radar-aqi", "heat-large", "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
   "matrix-covariance", "map-usa-population", "geo-graph", "matrix-mini-bar-geo",
-  "lines-ny",
+  "lines-ny", "mix-timeline-finance",
 ]);
 // Phase 1: charts that still use a preset/generator instead of one of the implemented
 // editors. Later phases replace entries here with range/OHLC/matrix/network editors.
 const PHASE_TWO_EDITABLE_CHARTS = new Set(["line-confidence", "candle-basic", "candle-large"]);
 const PHASE_THREE_EDITABLE_CHARTS = new Set([
-  "heat-cartesian", "heat-calendar", "matrix-covariance",
+  "heat-cartesian", "heat-calendar", "heat-calendar-legend", "matrix-covariance",
   "tree-lr", "treemap-sunburst",
-  "sankey-basic", "sankey-gradient",
+  "sankey-basic",
   "graph-les-mis", "graph-hide-overlap", "graph-gradient-edge",
   "map-usa-population", "geo-graph", "matrix-mini-bar-geo",
 ]);
@@ -516,12 +518,14 @@ const CHART_POLICY_OVERRIDES: Partial<Record<string, Partial<ChartPolicy>>> = {
   "scatter-distribution": { dataEditor: "xy", colorPolicy: "series" },
   "scatter-single": { dataEditor: "matrix", colorPolicy: "series" },
   "scatter-jitter": { dataEditor: "matrix", colorPolicy: "series" },
+  "scatter-effect": { dataEditor: "xy", colorPolicy: "series" },
   "line-aqi": { colorPolicy: "official-fixed" },
   "radar-aqi": { colorPolicy: "semantic" },
   "candle-basic": { dataEditor: "ohlc", colorPolicy: "semantic" },
   "candle-large": { dataEditor: "ohlc", colorPolicy: "semantic" },
   "heat-cartesian": { dataEditor: "matrix", colorPolicy: "gradient" },
   "heat-calendar": { dataEditor: "calendar", colorPolicy: "gradient" },
+  "heat-calendar-legend": { dataEditor: "calendar", colorPolicy: "gradient" },
   "heat-large": { dataEditor: "generator", colorPolicy: "official-fixed" },
   "large-scale-area": { dataEditor: "generator", colorPolicy: "series" },
   "lines-ny": { dataEditor: "generator", colorPolicy: "official-fixed" },
@@ -530,7 +534,6 @@ const CHART_POLICY_OVERRIDES: Partial<Record<string, Partial<ChartPolicy>>> = {
   "treemap-basic": { dataEditor: "hierarchy", colorPolicy: "gradient" },
   "treemap-sunburst": { dataEditor: "hierarchy", colorPolicy: "series" },
   "sankey-basic": { dataEditor: "network", colorPolicy: "series" },
-  "sankey-gradient": { dataEditor: "network", colorPolicy: "series" },
   "graph-les-mis": { dataEditor: "network", colorPolicy: "series" },
   "graph-hide-overlap": { dataEditor: "network", colorPolicy: "series" },
   "graph-gradient-edge": { dataEditor: "network", colorPolicy: "series" },
@@ -841,6 +844,100 @@ function genGraphData(n = 40, rand: (a: number, b: number) => number = baseRand,
   return { nodes, links, categories: categoryNames.map(name => ({ name })) };
 }
 
+// ─── Accessibility (color-blind / grayscale) visual encoding ──────────────────
+// ECharts ships a native `aria.decal` engine that layers a repeating pattern texture on
+// top of each series' fill color — bar segments, pie slices, stacked areas, funnel/radar
+// fills, etc. — so series stay distinguishable without relying on hue alone. Turning it on
+// globally (below) covers every filled-shape chart type for free. It only affects fills
+// though, so line/scatter point markers (small, mostly stroke) get a second, manual
+// technique: cycling their `symbol` shape (triangle/square/diamond/...) instead of leaving
+// every series as ECharts' default circle.
+const A11Y_MARKER_SYMBOLS = ["circle", "triangle", "rect", "diamond", "pin", "arrow", "roundRect"];
+// A wider, hand-picked set of decal patterns than ECharts' ~6 built-in defaults — a Pie
+// with 7+ slices (Jan..Jul) was cycling back to the same pattern (Jan/Jul looked identical).
+// `color` is set to a translucent white so the texture reads as a light overlay on top of
+// each series' own fill color, instead of ECharts' default dark tint.
+const A11Y_DECAL_COLOR = "rgba(255,255,255,0.6)";
+const A11Y_DECAL_SET = [
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [2, 5], rotation: Math.PI / 6, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "circle", dashArrayX: [6, 6], dashArrayY: [6, 6], symbolSize: 0.8, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [4, 3], rotation: -Math.PI / 4, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [2, 2], rotation: Math.PI / 4, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "triangle", dashArrayX: [9, 9], dashArrayY: [7, 7], symbolSize: 0.8, color: A11Y_DECAL_COLOR },
+  { symbol: "diamond", dashArrayX: [8, 8], dashArrayY: [8, 8], symbolSize: 0.7, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [2, 6], dashArrayY: [1, 0], rotation: 0, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [3, 3], rotation: Math.PI / 3, symbolSize: 1, color: A11Y_DECAL_COLOR },
+];
+// Charts where a decal texture actively hurts the chart's own point: a single lone series
+// with nothing to distinguish it from (bar-background/negative/mixed/encode), a fill whose
+// color IS the data (confidence band, gradient area/time fades, visualMap "pieces" bands,
+// choropleth maps), or families where ECharts renders decal onto cells/nodes/arcs too small
+// or too structurally different for a tiled texture to read as intended (heatmap, matrix,
+// radar, gauge, tree/treemap/sunburst, sankey, pictorial bar, candlestick — candlestick's
+// up/down boxes both draw from the same series-level decal, so they end up identical anyway).
+// Excluded chart-wide rather than via a per-series `decal: 'none'`: ECharts' aria engine
+// crashes ("Cannot create property 'dirty' on string 'none'") when a per-series decal:'none'
+// override coexists with the global aria.decal.show:true pass.
+const A11Y_DECAL_EXCLUDED_CHARTS = new Set([
+  "area-pieces", "line-area-time", "line-area-stacked", "line-confidence", "large-scale-area",
+  "bar-waterfall", "bar-background", "bar-negative", "bar-mixed", "bar-encode",
+  "radar-basic", "radar-browsers", "radar-aqi",
+  "heat-cartesian", "heat-calendar", "heat-calendar-legend", "heat-large",
+  "matrix-covariance", "matrix-mini-bar-geo", "map-usa-population",
+  "gauge-simple", "gauge-speed", "gauge-progress",
+  "tree-lr", "treemap-basic", "treemap-sunburst", "sankey-basic",
+  "pictorial-bar", "candle-basic", "candle-large",
+  // Plain line charts (no fill): decal has nothing to texture on the stroke itself, but
+  // ECharts still paints the *legend icon* with the assigned decal regardless of series
+  // type — a stray pattern shows up in the legend even though the line looks untouched.
+  // Line-shaped charts rely on marker shape (below) for distinction instead.
+  "line-basic", "line-bump", "line-step", "line-multiple-x", "line-aqi", "area-rainfall", "line-race",
+]);
+// Same nominal `symbolSize` renders very different *visual* weight per shape (a diamond or
+// triangle looks smaller than a rect/circle inscribed in the same box) — these factors even
+// that out so a mixed set of markers reads as one consistent size, not five random ones.
+const A11Y_SHAPE_SIZE_FACTOR: Record<string, number> = {
+  circle: 1, triangle: 1.3, rect: 0.85, diamond: 1.15, pin: 1.05, arrow: 1.2, roundRect: 0.85,
+};
+const A11Y_MARKER_BASE_SIZE = 10;
+
+function applyA11yMarkerSymbols(series: unknown, enabled: boolean, decalEnabled: boolean): unknown {
+  if (!enabled || !Array.isArray(series)) return series;
+  let shapeIndex = 0;
+  return series.map((s: any) => {
+    if (!s || (s.type !== "line" && s.type !== "scatter")) return s;
+    // Lines with an areaStyle are filled shapes (stacked area etc.) — decal normally
+    // handles distinguishing those, so markers are left alone. But when decal is excluded
+    // for this chart (e.g. Stacked Area), color becomes the only differentiator again, so
+    // markers need to pick up the slack with a shape swap too.
+    if (s.areaStyle && decalEnabled) return s;
+    // Every case in this file that cares about markers already writes an explicit
+    // `symbol` — "circle" as the deliberate baseline, or "none"/an array to hide them.
+    // Only the baseline (or an unset default) is fair game to swap for a distinct shape.
+    if (s.symbol && s.symbol !== "circle") return s;
+    const symbol = A11Y_MARKER_SYMBOLS[shapeIndex % A11Y_MARKER_SYMBOLS.length];
+    shapeIndex++;
+    // Every series (circle included) gets the same base size, scaled per-shape — mixing the
+    // chart's own original symbolSize (often small, e.g. 6) with a bigger override just for
+    // non-circle shapes made series within one chart look inconsistently sized.
+    return { ...s, symbol, symbolSize: Math.round(A11Y_MARKER_BASE_SIZE * (A11Y_SHAPE_SIZE_FACTOR[symbol] ?? 1)) };
+  });
+}
+
+function applyA11yEncoding(option: any, enabled: boolean, chartId: string): echarts.EChartsOption {
+  const decalEnabled = enabled && !A11Y_DECAL_EXCLUDED_CHARTS.has(chartId);
+  const aria = { enabled: decalEnabled, decal: { show: decalEnabled, decals: A11Y_DECAL_SET } };
+  if (option?.baseOption) {
+    // Timeline-based charts (Bar Race, Line Race) keep their real series under baseOption.
+    option.baseOption.aria = aria;
+    option.baseOption.series = applyA11yMarkerSymbols(option.baseOption.series, enabled, decalEnabled);
+  } else if (option) {
+    option.aria = aria;
+    option.series = applyA11yMarkerSymbols(option.series, enabled, decalEnabled);
+  }
+  return option;
+}
+
 // ─── ECharts Option Builder ───────────────────────────────────────────────────
 function buildEChartsOption(
   chartId: string,
@@ -852,6 +949,7 @@ function buildEChartsOption(
   size: { w: number; h: number },
   autoResponsive: boolean,
   smoothLine: boolean,
+  a11yPatterns: boolean,
   specialData: SpecialChartData,
   koreaRoadData: KoreaRoadData | null,
 ): echarts.EChartsOption {
@@ -973,6 +1071,9 @@ function buildEChartsOption(
   const userVals = (i = 0) => datasets[i]?.data ?? Array.from({ length: userLabels.length }, () => rand(20, 100));
 
   // ══════════════════════════════════════════════════════════════════════════
+  // Wrapped in an IIFE so every case's `return` exits just this expression — the a11y
+  // pattern/marker post-processing below still runs on whichever chart case fired.
+  const option = (() => {
   switch (chartId) {
 
     // ── LINE ──────────────────────────────────────────────────────────────
@@ -1049,7 +1150,7 @@ function buildEChartsOption(
           type: "line",
           smooth: smoothLine ? 0.6 : false,
           symbol: "none",
-          lineStyle: { color: palette[0], width: 5 },
+          lineStyle: { color: palette[0], width: 2.5 },
           markLine: {
             symbol: ["none", "none"],
             label: { show: false },
@@ -1091,7 +1192,7 @@ function buildEChartsOption(
           fontWeight: 600,
         },
         labelLayout: { moveOverlap: "shiftY" as const },
-        lineStyle: { width: isSmall ? 2.5 : 4 },
+        lineStyle: { width: 2.5 },
         itemStyle: { color: palette[i % palette.length] },
       }));
       return {
@@ -2154,6 +2255,43 @@ function buildEChartsOption(
       };
     }
 
+    case "scatter-effect": {
+      // Official example layers a second `effectScatter` series with the exact same
+      // coordinates as a couple of "notable" points to ripple-highlight them on top of a
+      // plain scatter cloud. Here "notable" = each series' own point farthest from its
+      // centroid, so the ripple lands on a real outlier instead of a fixed index.
+      const effectSeries = specialData.scatter.length ? specialData.scatter : createDefaultScatterSeries();
+      const highlights = effectSeries.map((series, i) => {
+        if (!series.points.length) return null;
+        const cx = series.points.reduce((sum, p) => sum + p.x, 0) / series.points.length;
+        const cy = series.points.reduce((sum, p) => sum + p.y, 0) / series.points.length;
+        const farthest = series.points.reduce((best, p) => {
+          const d = (p.x - cx) ** 2 + (p.y - cy) ** 2;
+          return d > best.d ? { p, d } : best;
+        }, { p: series.points[0], d: -1 });
+        return { name: series.name, value: [farthest.p.x, farthest.p.y], itemStyle: { color: palette[i % palette.length] } };
+      }).filter((h): h is NonNullable<typeof h> => h !== null);
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: "Effect Scatter Chart", left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: { trigger: "item" }, legend, grid,
+        xAxis: { type: "value", scale: true, ...axisTick },
+        yAxis: { type: "value", scale: true, ...axisTick },
+        series: [
+          ...effectSeries.map((series, i) => ({
+            name: series.name, type: "scatter" as const,
+            data: series.points.map(p => [p.x, p.y]),
+            symbolSize: 10, itemStyle: { color: palette[i % palette.length], opacity: 0.55 },
+          })),
+          {
+            name: "Highlight", type: "effectScatter" as const,
+            symbolSize: 18, showEffectOn: "render" as const, rippleEffect: { brushType: "stroke" as const, scale: 3 },
+            legendHoverLink: false, data: highlights, z: 10,
+            tooltip: { formatter: (p: any) => `${p.data.name}: (${p.data.value[0]}, ${p.data.value[1]})` },
+          },
+        ],
+      };
+    }
+
     // ── CANDLESTICK ───────────────────────────────────────────────────────
     case "candle-basic":
     case "candle-large": {
@@ -2265,6 +2403,34 @@ function buildEChartsOption(
       };
     }
 
+    case "heat-calendar-legend": {
+      // Same underlying calendar dataset as "Calendar" — the difference is purely
+      // presentational: a piecewise visualMap renders as clickable, labeled swatches
+      // (a real legend) instead of a continuous gradient bar.
+      const calendarPoints = specialData.calendarHeatmap.length ? specialData.calendarHeatmap : createDefaultCalendarHeatmap();
+      const calData: [string, number][] = calendarPoints.map(point => [point.date, point.value]);
+      const calendarMin = Math.min(...calendarPoints.map(point => point.value));
+      const calendarMax = Math.max(...calendarPoints.map(point => point.value));
+      const calendarRange = [calendarPoints[0].date, calendarPoints[calendarPoints.length - 1].date];
+      const year = calendarPoints[0].date.slice(0, 4);
+      const legendSteps = [0.18, 0.38, 0.58, 0.78, 1].map(a => palette[0] + Math.round(a * 255).toString(16).padStart(2, "0"));
+      return {
+        backgroundColor: bg, color: palette, title: titleCfg || { text: `Activity ${year}`, left: "center", top: 8, textStyle: { color: fg, fontFamily: "Inter", fontSize: titleSz } },
+        tooltip: { formatter: (p: any) => `${p.data[0]}: ${p.data[1]}` },
+        visualMap: {
+          show: true, type: "piecewise", splitNumber: 5,
+          min: calendarMin, max: calendarMax === calendarMin ? calendarMin + 1 : calendarMax,
+          orient: "horizontal", left: "center", top: title ? 42 : 26,
+          itemGap: 10, itemWidth: 16, itemHeight: 12,
+          inRange: { color: legendSteps },
+          textStyle: { color: fg, fontFamily: "Inter", fontSize: 11 },
+        },
+        calendar: { top: title ? 96 : 72, left: 32, right: 16, cellSize: ["auto", 14], range: calendarRange, itemStyle: { borderWidth: 1, borderColor: bg }, yearLabel: { show: false }, monthLabel: { color: fg, fontFamily: "Inter", fontSize: 11 }, dayLabel: { color: fg, fontFamily: "Inter", fontSize: 10 } },
+        series: [{ type: "heatmap", coordinateSystem: "calendar", data: calData }],
+        legend: { show: false },
+      };
+    }
+
     case "heat-large": {
       // ~10,000 cells generated from a few summed sine waves (a cheap stand-in for the
       // official example's Perlin noise) so the field reads as organic blobs rather than
@@ -2361,6 +2527,7 @@ function buildEChartsOption(
           type: "map", map: "USA", roam: true,
           data: mapData,
           label: { show: false },
+          showLegendSymbol: false,
           emphasis: { label: { show: true, color: fg, fontFamily: "Inter", fontSize: 10 }, itemStyle: { areaColor: palette[3] ?? "#f59e0b" } },
           itemStyle: { borderColor: axisC, borderWidth: 0.5 },
         } as any],
@@ -2771,19 +2938,6 @@ function buildEChartsOption(
       };
     }
 
-    case "sankey-gradient": {
-      const sgNodes = specialData.sankeyNodes.map((node, index) => ({ name: node.name, itemStyle: { color: palette[index % palette.length] } }));
-      const sgLinks = specialData.sankeyLinks.map(link => ({ source: link.source, target: link.target, value: link.value }));
-      const sgLabelPad = (names: string[], fs = 11) => Math.ceil(Math.max(...names.map(n => n.length)) * fs * 0.7) + 16;
-      const sgLeft = sgLabelPad(specialData.sankeyNodes.map(node => node.name));
-      const sgRight = sgLeft;
-      return {
-        backgroundColor: bg, title: titleCfg, tooltip: { trigger: "item" },
-        series: [{ type: "sankey", data: sgNodes, links: sgLinks, left: sgLeft, right: sgRight, top: title ? 52 : 24, bottom: 16, nodeWidth: 18, nodeGap: 10, label: { color: fg, fontFamily: "Inter", fontSize: 11 }, lineStyle: { color: "gradient", opacity: 0.5 }, emphasis: { focus: "adjacency" } }],
-        legend: { show: false },
-      };
-    }
-
     case "funnel-basic": {
       const v = userVals(0);
       return {
@@ -2918,9 +3072,82 @@ function buildEChartsOption(
       };
     }
 
+    case "mix-timeline-finance": {
+      // Official "Finance Indices 2002" scales to 31 Chinese provinces × 10 years × 6
+      // hardcoded metrics. Reinterpreted at app scale: 8 fictional regions × 6 years × 3
+      // industry-sector bar series that also feed the pie's share breakdown — same core
+      // technique (several bar series + a summary pie, one shared timeline) without
+      // inlining hundreds of rows of real hardcoded data.
+      const regions = ["Northgate", "Riverside", "Eastfield", "Westport", "Lakeview", "Hillcrest", "Bayshore", "Midtown"];
+      const years = ["2019", "2020", "2021", "2022", "2023", "2024"];
+      const base = regions.map(() => ({ primary: rand(20, 60), secondary: rand(80, 160), tertiary: rand(60, 140) }));
+      const frames = years.map((year, yi) => ({
+        year,
+        primary: base.map(b => Math.round(b.primary * (1 + yi * 0.10 + rand(-3, 3) / 100))),
+        secondary: base.map(b => Math.round(b.secondary * (1 + yi * 0.14 + rand(-3, 3) / 100))),
+        tertiary: base.map(b => Math.round(b.tertiary * (1 + yi * 0.18 + rand(-3, 3) / 100))),
+      }));
+      const sum = (arr: number[]) => arr.reduce((a, v) => a + v, 0);
+      const financeBarWidth = isSmall ? 12 : 22;
+      // Official example's defining feature is the visible timeline player bar (slider +
+      // play control) driving the year — the earlier version hid it (timeline.show:false,
+      // matching Bar Race's style) and stood a static "big year number" in for it instead,
+      // which doesn't match the source example. Reserve real space for it here instead.
+      const financeTimelineHeight = isSmall ? 34 : 44;
+      const financeLegendBottom = financeTimelineHeight + (isSmall ? 8 : 14);
+      return {
+        baseOption: {
+          backgroundColor: bg, color: palette,
+          title: { ...titleCfg, text: title || "Regional Industry Output" },
+          tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+          legend: { ...legendAxisSafe, bottom: financeLegendBottom, data: ["Primary", "Secondary", "Tertiary"] },
+          grid: [{ left: gridL, right: isSmall ? gridL : "30%", top: topPad + 12, bottom: legendAxisBottomSpace + financeTimelineHeight, containLabel: true }],
+          xAxis: [{ type: "category", data: regions, axisLabel: { ...axisTick.axisLabel, interval: 0, rotate: isSmall ? 45 : 20 }, axisLine: axisTick.axisLine, splitLine: { show: false } }],
+          yAxis: [{ type: "value", name: "Output", nameTextStyle: { color: fg, fontFamily: "Inter", fontSize: 11 }, ...axisTick }],
+          series: [
+            { name: "Primary", type: "bar", itemStyle: { color: palette[0] }, barMaxWidth: financeBarWidth },
+            { name: "Secondary", type: "bar", itemStyle: { color: palette[1 % palette.length] }, barMaxWidth: financeBarWidth },
+            { name: "Tertiary", type: "bar", itemStyle: { color: palette[2 % palette.length] }, barMaxWidth: financeBarWidth },
+            {
+              name: "Share", type: "pie", center: [isSmall ? "50%" : "78%", isSmall ? "18%" : "32%"],
+              radius: isSmall ? "15%" : "18%", z: 10,
+              label: { color: fg, fontFamily: "Inter", fontSize: 10, formatter: "{d}%", overflow: "truncate" },
+              labelLine: { length: 8, length2: 6 },
+              itemStyle: { borderRadius: 3, borderColor: bg, borderWidth: 2 },
+            },
+          ],
+          animationDurationUpdate: 700, animationEasingUpdate: "cubicOut" as const,
+        },
+        timeline: {
+          axisType: "category", autoPlay: true, playInterval: 1600, loop: true, data: years,
+          bottom: 6, left: isSmall ? "8%" : "12%", right: isSmall ? "8%" : "12%",
+          label: { color: fg, fontFamily: "Inter", fontSize: isSmall ? 9 : 11 },
+          lineStyle: { color: axisC }, itemStyle: { color: axisC },
+          checkpointStyle: { color: palette[0], borderColor: bg, borderWidth: 2 },
+          controlStyle: { showNextBtn: !isSmall, showPrevBtn: !isSmall, color: fg, borderColor: axisC, itemSize: isSmall ? 12 : 16 },
+          emphasis: { itemStyle: { color: palette[0] } },
+        },
+        options: frames.map(f => ({
+          series: [
+            { data: f.primary },
+            { data: f.secondary },
+            { data: f.tertiary },
+            { data: [
+              { name: "Primary", value: sum(f.primary) },
+              { name: "Secondary", value: sum(f.secondary) },
+              { name: "Tertiary", value: sum(f.tertiary) },
+            ] },
+          ],
+        })),
+      };
+    }
+
     default:
       return { backgroundColor: bg, title: titleCfg, series: [] };
   }
+  })();
+
+  return applyA11yEncoding(option, a11yPatterns, chartId);
 }
 
 // ─── Chart Type Icon ──────────────────────────────────────────────────────────
@@ -2993,6 +3220,10 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <line x1="7" y1="3" x2="7" y2="21" stroke={c} strokeWidth="1" opacity="0.25" /><line x1="13" y1="3" x2="13" y2="21" stroke={c} strokeWidth="1" opacity="0.25" /><line x1="19" y1="3" x2="19" y2="21" stroke={c} strokeWidth="1" opacity="0.25" />
       {dots([[3, 8], [4.5, 14], [2.5, 17], [6, 6], [8, 11], [9.5, 16], [7, 19], [11, 9], [13, 6], [15, 13], [12, 17], [14.5, 7], [17, 11], [20, 15], [18, 7], [21, 19], [16, 17]], 1)}
     </>,
+    "scatter-effect": <>
+      {dots([[5, 17], [10, 8], [19, 6]], 1.4)}
+      <circle cx="15" cy="14" r="2" fill={c} /><circle cx="15" cy="14" r="4.5" stroke={c} strokeWidth="1" fill="none" opacity="0.5" /><circle cx="15" cy="14" r="7" stroke={c} strokeWidth="1" fill="none" opacity="0.25" />
+    </>,
     // ── CANDLESTICK ──
     "candle-basic": <><rect x="4" y="6" width="4" height="10" stroke={c} strokeWidth="1.5" fill="none" /><line x1="6" y1="3" x2="6" y2="6" stroke={c} strokeWidth="1.5" /><line x1="6" y1="16" x2="6" y2="20" stroke={c} strokeWidth="1.5" /><rect x="14" y="9" width="4" height="8" stroke={c} strokeWidth="1.5" fill="none" /><line x1="16" y1="4" x2="16" y2="9" stroke={c} strokeWidth="1.5" /><line x1="16" y1="17" x2="16" y2="21" stroke={c} strokeWidth="1.5" /></>,
     "candle-large": <>
@@ -3017,6 +3248,12 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       {[0.5, 0.2, 0.9, 0.4, 0.65, 0.3, 0.75].map((o, i) => <rect key={"b" + i} x={3 + i * 2.7} y="8" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
       {[0.35, 0.8, 0.25, 0.6, 0.15, 0.9, 0.45].map((o, i) => <rect key={"c" + i} x={3 + i * 2.7} y="12" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
       {[0.6, 0.3, 0.5, 0.85, 0.2, 0.4, 0.7].map((o, i) => <rect key={"d" + i} x={3 + i * 2.7} y="16" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+    </>,
+    "heat-calendar-legend": <>
+      {[0.15, 0.4, 0.7, 0.3, 0.55, 0.85, 0.2].map((o, i) => <rect key={"a" + i} x={3 + i * 2.7} y="9" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+      {[0.5, 0.2, 0.9, 0.4, 0.65, 0.3, 0.75].map((o, i) => <rect key={"b" + i} x={3 + i * 2.7} y="13" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+      {[0.35, 0.8, 0.25, 0.6, 0.15, 0.9, 0.45].map((o, i) => <rect key={"c" + i} x={3 + i * 2.7} y="17" width="2.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
+      {[0.2, 0.45, 0.7, 1].map((o, i) => <rect key={"leg" + i} x={4 + i * 4.2} y="3" width="3.2" height="2.2" rx="0.4" fill={c} opacity={o} />)}
     </>,
     "heat-large": <>
       {Array.from({ length: 36 }).map((_, i) => {
@@ -3075,11 +3312,6 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
       <rect x="18.6" y="3" width="2.4" height="5" fill={c} opacity="0.7" /><rect x="18.6" y="10" width="2.4" height="5" fill={c} /><rect x="18.6" y="17" width="2.4" height="4" fill={c} opacity="0.5" />
       <path d="M5.4 6c5 0 8-1 13-1.5M5.4 8c5 2 8 4 13 5M5.4 16c5 0 8-3 13-6.5M5.4 18c5 0 8 4 13 6" stroke={c} strokeWidth="1.2" opacity="0.35" fill="none" />
     </>,
-    "sankey-gradient": <>
-      <rect x="3" y="3" width="2.4" height="5" fill={c} opacity="0.8" /><rect x="3" y="10" width="2.4" height="4" fill={c} opacity="0.6" /><rect x="3" y="16" width="2.4" height="5" fill={c} opacity="0.4" />
-      <rect x="18.6" y="4" width="2.4" height="4" fill={c} opacity="0.7" /><rect x="18.6" y="10" width="2.4" height="4" fill={c} /><rect x="18.6" y="16" width="2.4" height="5" fill={c} opacity="0.5" />
-      <path d="M5.4 5.5c5 1 8 2 13 3M5.4 12c5 0 8-1 13-3M5.4 18c5 0 8 0 13-2" stroke={c} strokeWidth="1.4" opacity="0.5" fill="none" />
-    </>,
     "funnel-basic": <path d="M4 4h16M6 9h12M8 14h8M10 19h4" stroke={c} strokeWidth="2" strokeLinecap="round" />,
     "graph-les-mis": <>
       <line x1="12" y1="12" x2="5" y2="5" stroke={c} strokeWidth="1" opacity="0.4" /><line x1="12" y1="12" x2="19" y2="5" stroke={c} strokeWidth="1" opacity="0.4" />
@@ -3119,6 +3351,12 @@ function ChartIcon({ type, color = "currentColor" }: { type: string; color?: str
     "lines-ny": <>
       {[3, 8, 13, 18].map(y => <line key={"h" + y} x1="2" y1={y} x2="22" y2={y + (y % 2 ? 1 : -1) * 0.6} stroke={c} strokeWidth="0.8" opacity="0.55" />)}
       {[4, 9, 14, 19].map(x => <line key={"v" + x} x1={x} y1="2" x2={x + (x % 2 ? 1 : -1) * 0.6} y2="22" stroke={c} strokeWidth="0.8" opacity="0.55" />)}
+    </>,
+    "mix-timeline-finance": <>
+      <rect x="2" y="12" width="2.4" height="8" fill={c} opacity="0.85" /><rect x="5.4" y="8" width="2.4" height="12" fill={c} opacity="0.6" /><rect x="8.8" y="14" width="2.4" height="6" fill={c} opacity="0.85" />
+      <circle cx="17" cy="9" r="5" fill="none" stroke={c} strokeWidth="1.3" opacity="0.6" /><path d="M17 4a5 5 0 0 1 4.33 7.5" fill={c} opacity="0.5" />
+      <line x1="2" y1="22.5" x2="22" y2="22.5" stroke={c} strokeWidth="1" opacity="0.35" />
+      <circle cx="6" cy="22.5" r="1.1" fill={c} /><circle cx="12" cy="22.5" r="1.1" fill={c} opacity="0.6" /><circle cx="18" cy="22.5" r="1.1" fill={c} opacity="0.6" />
     </>,
   };
   return <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">{map[type] ?? map["bar-basic"]}</svg>;
@@ -3422,6 +3660,7 @@ export default function App() {
   const [customHeight, setCustomHeight] = useState(500);
   const [autoResponsive, setAutoResponsive] = useState(true);
   const [smoothLine, setSmoothLine] = useState(true);
+  const [a11yPatterns, setA11yPatterns] = useState(true);
   const [chartTitle, setChartTitle] = useState("Monthly Revenue Growth 2024");
   const [editingTitle, setEditingTitle] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -3573,6 +3812,7 @@ export default function App() {
   const resetSpecialSample = () => {
     setSpecialData(prev => {
       if (chartType === "scatter-basic") return { ...prev, scatter: createDefaultScatterSeries() };
+      if (chartType === "scatter-effect") return { ...prev, scatter: createDefaultScatterSeries() };
       if (chartType === "scatter-bubble") return { ...prev, bubble: createDefaultBubbleSeries() };
       if (chartType === "line-confidence") return { ...prev, confidence: createDefaultConfidencePoints() };
       if (chartType === "candle-basic") return { ...prev, candleBasic: createDefaultOHLCPoints(40, "candle-basic") };
@@ -3581,9 +3821,9 @@ export default function App() {
       if (chartType === "matrix-covariance") return { ...prev, covarianceMatrix: createDefaultCovarianceMatrix() };
       if (chartType === "scatter-single") return { ...prev, singleAxisScatter: createDefaultSingleAxisScatter() };
       if (chartType === "scatter-jitter") return { ...prev, jitterScatter: createDefaultJitterScatter() };
-      if (chartType === "heat-calendar") return { ...prev, calendarHeatmap: createDefaultCalendarHeatmap() };
+      if (chartType === "heat-calendar" || chartType === "heat-calendar-legend") return { ...prev, calendarHeatmap: createDefaultCalendarHeatmap() };
       if (chartType === "tree-lr" || chartType === "treemap-basic" || chartType === "treemap-sunburst") return { ...prev, hierarchy: createDefaultHierarchy() };
-      if (chartType === "sankey-basic" || chartType === "sankey-gradient") {
+      if (chartType === "sankey-basic") {
         const sankey = createDefaultSankeyData();
         return { ...prev, sankeyNodes: sankey.nodes, sankeyLinks: sankey.links };
       }
@@ -3787,7 +4027,7 @@ export default function App() {
       return { ...prev, hierarchy: prev.hierarchy.filter((_, i) => i !== index).map(row => row.parentId === removedId ? { ...row, parentId: "" } : row) };
     });
   };
-  const usesSankeyData = chartType === "sankey-basic" || chartType === "sankey-gradient";
+  const usesSankeyData = chartType === "sankey-basic";
   const activeNetworkNodes = usesSankeyData ? specialData.sankeyNodes : specialData.graphNodes;
   const activeNetworkLinks = usesSankeyData ? specialData.sankeyLinks : specialData.graphLinks;
   const updateNetworkNode = (index: number, field: "name" | "category", value: string) => {
@@ -4244,7 +4484,14 @@ export default function App() {
     // buildEChartsOption() again — for static-demo charts that build fresh random data,
     // a second call used to produce a different dataset than what's actually rendered.
     const { option: dsOption, truncated, originalCount } = downsampleForSvg(echartsOption);
-    const exportOption = { ...dsOption, animation: false, animationDuration: 0 };
+    // Timeline-shaped options (Bar Race, Line Race, Timeline Finance) keep their real
+    // config under `baseOption` — `animation` set at the top level here is silently
+    // ignored, so the entrance animation (e.g. bars growing from height 0) still gets
+    // baked into the static export as CSS @keyframes, which paste as invisible/collapsed
+    // shapes anywhere that doesn't run them (Figma, image viewers, etc).
+    const exportOption = (dsOption as any).baseOption
+      ? { ...dsOption, baseOption: { ...(dsOption as any).baseOption, animation: false, animationDuration: 0 } }
+      : { ...dsOption, animation: false, animationDuration: 0 };
     const inst = echarts.init(document.createElement("div"), theme === "dark" ? "dark" : undefined, { renderer: "svg", width: chartSize.w, height: chartSize.h });
     inst.setOption(exportOption, { notMerge: true, silent: true });
     const inner = inst.renderToSVGString();
@@ -4311,9 +4558,9 @@ export default function App() {
   const inputBorder = isDark ? "#3D3D5C" : "#E5E7EB";
 
   const echartsOption = useMemo(
-    () => buildEChartsOption(chartType, labels, chartDatasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine, specialData, koreaRoadData),
+    () => buildEChartsOption(chartType, labels, chartDatasets, effectivePalette, theme, chartTitle, chartSize, autoResponsive, smoothLine, a11yPatterns, specialData, koreaRoadData),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize.w, chartSize.h, autoResponsive, smoothLine, specialData, koreaRoadData]
+    [chartType, labels, datasets, effectivePalette, theme, chartTitle, chartSize.w, chartSize.h, autoResponsive, smoothLine, a11yPatterns, specialData, koreaRoadData]
   );
 
   return (
@@ -4789,7 +5036,7 @@ export default function App() {
                     </button>
                     {canAddDataset && (
                       <button onClick={addDataset} style={{ flex: "1 1 110px", height: 32, borderRadius: 6, border: `1px solid ${inputBorder}`, fontSize: 11.5, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: inputBg, color: subText }}>
-                        <Plus size={12} />+ {Y_AXIS_CATEGORY_CHARTS.has(chartType) ? "X" : "Y"} Series
+                        <Plus size={12} />+ Dataset
                       </button>
                     )}
                     <button onClick={randomizeData} style={{ flex: "1 1 110px", height: 32, borderRadius: 6, border: "none", fontSize: 11.5, fontWeight: 500, cursor: "pointer", fontFamily: "Inter", display: "flex", alignItems: "center", justifyContent: "center", gap: 5, background: isDark ? "#2D2B5C" : "#EEF2FF", color: "#6366F1" }}>
@@ -4851,6 +5098,15 @@ export default function App() {
                   <span style={{ fontSize: 13, color: sectionText }}>Theme</span>
                   <button onClick={() => setTheme(t => t === "light" ? "dark" : "light")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 6, border: `1px solid ${inputBorder}`, background: inputBg, color: sectionText, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Inter" }}>
                     {isDark ? <Moon size={13} /> : <Sun size={13} />}{isDark ? "Dark" : "Light"}
+                  </button>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <span style={{ fontSize: 13, color: sectionText }}>Accessibility Patterns</span>
+                    <div style={{ fontSize: 10.5, color: subText, marginTop: 2 }}>색상 외 패턴·도형으로 계열을 구분해요</div>
+                  </div>
+                  <button onClick={() => setA11yPatterns(p => !p)} style={{ position: "relative", width: 44, height: 24, flexShrink: 0, borderRadius: 12, border: "none", cursor: "pointer", background: a11yPatterns ? "#6366F1" : (isDark ? "#3D3D5C" : "#D1D5DB"), transition: "background .2s" }}>
+                    <div style={{ position: "absolute", top: 4, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "transform .2s", transform: a11yPatterns ? "translateX(22px)" : "translateX(4px)", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
                   </button>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
