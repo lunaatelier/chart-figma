@@ -858,15 +858,19 @@ const A11Y_MARKER_SYMBOLS = ["circle", "triangle", "rect", "diamond", "pin", "ar
 // `color` is set to a translucent white so the texture reads as a light overlay on top of
 // each series' own fill color, instead of ECharts' default dark tint.
 const A11Y_DECAL_COLOR = "rgba(255,255,255,0.6)";
+// Decal tile spacing is in fixed screen pixels — the same numbers that read as a nice
+// hatch on a 40px-tall bar only fit 1-2 repeats inside a ~14px legend icon, showing up as
+// a couple of oversized blobs/bands there instead of a texture. Kept small (~3-5px period)
+// so both the legend swatch and the chart shapes show a proper repeating pattern.
 const A11Y_DECAL_SET = [
-  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [2, 5], rotation: Math.PI / 6, symbolSize: 1, color: A11Y_DECAL_COLOR },
-  { symbol: "circle", dashArrayX: [6, 6], dashArrayY: [6, 6], symbolSize: 0.8, color: A11Y_DECAL_COLOR },
-  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [4, 3], rotation: -Math.PI / 4, symbolSize: 1, color: A11Y_DECAL_COLOR },
-  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [2, 2], rotation: Math.PI / 4, symbolSize: 1, color: A11Y_DECAL_COLOR },
-  { symbol: "triangle", dashArrayX: [9, 9], dashArrayY: [7, 7], symbolSize: 0.8, color: A11Y_DECAL_COLOR },
-  { symbol: "diamond", dashArrayX: [8, 8], dashArrayY: [8, 8], symbolSize: 0.7, color: A11Y_DECAL_COLOR },
-  { symbol: "rect", dashArrayX: [2, 6], dashArrayY: [1, 0], rotation: 0, symbolSize: 1, color: A11Y_DECAL_COLOR },
-  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [3, 3], rotation: Math.PI / 3, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [1, 2], rotation: Math.PI / 6, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "circle", dashArrayX: [4, 3], dashArrayY: [4, 3], symbolSize: 0.55, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [2, 2], rotation: -Math.PI / 4, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [1, 1], rotation: Math.PI / 4, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "triangle", dashArrayX: [5, 4], dashArrayY: [4, 3], symbolSize: 0.5, color: A11Y_DECAL_COLOR },
+  { symbol: "diamond", dashArrayX: [5, 4], dashArrayY: [5, 4], symbolSize: 0.45, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 3], dashArrayY: [1, 0], rotation: 0, symbolSize: 1, color: A11Y_DECAL_COLOR },
+  { symbol: "rect", dashArrayX: [1, 0], dashArrayY: [2, 2], rotation: Math.PI / 3, symbolSize: 1, color: A11Y_DECAL_COLOR },
 ];
 // Charts where a decal texture actively hurts the chart's own point: a single lone series
 // with nothing to distinguish it from (bar-background/negative/mixed/encode), a fill whose
